@@ -11,9 +11,37 @@ import app.models.user  # noqa: F401 — User
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create database tables on startup."""
+    """Create database tables and run seeding on startup."""
+    print("--- [STARTUP] Initializing Database ---")
     Base.metadata.create_all(bind=engine)
+    
+    # --- Auto-Seeding ---
+    import os
+    import importlib.util
+    from app.database.session import SessionLocal
+
+    seeds_dir = os.path.join(os.path.dirname(__file__), "scripts", "seeds")
+    if os.path.exists(seeds_dir):
+        print(f"--- [STARTUP] Running seeds from {seeds_dir} ---")
+        db = SessionLocal()
+        try:
+            for filename in sorted(os.listdir(seeds_dir)):
+                if filename.endswith(".py") and filename != "__init__.py":
+                    module_name = f"app.scripts.seeds.{filename[:-3]}"
+                    print(f"  * Executing {module_name}...")
+                    spec = importlib.util.spec_from_file_location(module_name, os.path.join(seeds_dir, filename))
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    
+                    if hasattr(module, "seed"):
+                        module.seed(db)
+        except Exception as e:
+            print(f"--- [ERROR] Seeding failed: {e} ---")
+        finally:
+            db.close()
+    
     yield
+    print("--- [SHUTDOWN] Cleaning up ---")
 
 
 app = FastAPI(
@@ -50,3 +78,41 @@ app.include_router(api_v1_router, prefix="/api/v1")
 def health_check():
     """Root endpoint — health check."""
     return {"status": "ok", "message": "My ERP Pilot is running."}
+
+
+# ── OpenAPI Customization ────────────────────────
+from fastapi.openapi.utils import get_openapi
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        contact=app.contact,
+        license_info=app.license_info,
+    )
+    # Define BearerAuth manually
+    openapi_schema["components"]["securitySchemes"]["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+
+    # Ensure all endpoints that require security can also use BearerAuth
+    # This specifically fixes the issue where Swagger UI doesn't send the token
+    # for manually authorized "BearerAuth" if the endpoint only lists OAuth2.
+    for path in openapi_schema.get("paths", {}).values():
+        for method in path.values():
+            if "security" in method:
+                # Add BearerAuth as an alternative option
+                method["security"].append({"BearerAuth": []})
+
+    app.openapi_schema = openapi_schema
+    return openapi_schema
+
+
+app.openapi = custom_openapi

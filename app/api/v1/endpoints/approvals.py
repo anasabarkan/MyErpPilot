@@ -58,7 +58,7 @@ def list_approval_requests(
     "/{request_id}",
     response_model=ApprovalResponse,
     summary="Get approval request by ID",
-    dependencies=[Depends(get_current_user)], # Any logged in user? Should probably also check permissions but let's keep it simple
+    dependencies=[Depends(require_permission("view_audit_logs"))],
 )
 def get_approval_request(
     request_id: UUID,

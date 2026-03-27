@@ -24,7 +24,12 @@ from app.services import data_source_service as service
 router = APIRouter()
 
 
-@router.post("/", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=DataSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("manage_data_sources"))],
+)
 def create_data_source(
     *,
     db: Session = Depends(get_db),
@@ -43,7 +48,11 @@ def create_data_source(
     return ds_resp
 
 
-@router.get("/", response_model=List[DataSourceResponse])
+@router.get(
+    "/",
+    response_model=List[DataSourceResponse],
+    dependencies=[Depends(require_permission("view_data_sources"))],
+)
 def list_data_sources(
     skip: int = 0,
     limit: int = 100,
@@ -66,7 +75,11 @@ def list_data_sources(
     return results
 
 
-@router.get("/{id}", response_model=DataSourceResponse)
+@router.get(
+    "/{id}",
+    response_model=DataSourceResponse,
+    dependencies=[Depends(require_permission("view_data_sources"))],
+)
 def get_data_source(
     id: UUID,
     db: Session = Depends(get_db),
@@ -87,7 +100,11 @@ def get_data_source(
     return ds_resp
 
 
-@router.put("/{id}", response_model=DataSourceResponse)
+@router.put(
+    "/{id}",
+    response_model=DataSourceResponse,
+    dependencies=[Depends(require_permission("manage_data_sources"))],
+)
 def update_data_source(
     id: UUID,
     *,
@@ -112,7 +129,12 @@ def update_data_source(
     return ds_resp
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("manage_data_sources"))],
+)
 def delete_data_source(
     id: UUID,
     db: Session = Depends(get_db),
@@ -132,7 +154,11 @@ def delete_data_source(
     return None
 
 
-@router.post("/{id}/test", response_model=DataSourceTestResponse)
+@router.post(
+    "/{id}/test",
+    response_model=DataSourceTestResponse,
+    dependencies=[Depends(require_permission("test_data_source"))],
+)
 def test_data_source_connection(
     id: UUID,
     db: Session = Depends(get_db),
@@ -152,7 +178,11 @@ def test_data_source_connection(
     return result
 
 
-@router.get("/{id}/schema", response_model=DataSourceSchemaResponse)
+@router.get(
+    "/{id}/schema",
+    response_model=DataSourceSchemaResponse,
+    dependencies=[Depends(require_permission("query_data"))],
+)
 def get_data_source_schema(
     id: UUID,
     refresh: bool = False,

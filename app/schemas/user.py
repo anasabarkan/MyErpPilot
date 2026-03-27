@@ -5,7 +5,8 @@ Pydantic schemas for User-related request / response payloads.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from typing import Any
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Request schemas ──────────────────────────────
@@ -33,3 +34,11 @@ class UserResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def get_role_names(cls, v: Any) -> list[str]:
+        """Convert list of Role objects to list of role names strings."""
+        if isinstance(v, list):
+            return [role.name if hasattr(role, "name") else str(role) for role in v]
+        return v
