@@ -1,0 +1,24 @@
+# ── Core Framework (Unpinned for 3.14) ──
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+pydantic-settings
+pydantic[email]
+
+# ── AI / LLM (Unpinned for 3.14) ──
+langchain
+langchain-core
+langchain-openai
+langchain-community
+langgraph
+langgraph-sdk
+
+# ── ML / Data Science (Unpinned for 3.14 compatibility) ──
+pandas
+xgboost
+scikit-learn
+numpy>=2.1.0
+
+# ── Utilities ──────────────────────────────
+python-dotenv
