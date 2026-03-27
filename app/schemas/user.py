@@ -28,7 +28,7 @@ class UserResponse(BaseModel):
     is_verified: bool
     provider: str
     avatar_url: str | None = None
-    role: str
+    roles: list[str] = []
     created_at: datetime
     updated_at: datetime
 

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.database.session import Base
 
@@ -31,8 +32,8 @@ class User(Base):
 
     avatar_url = Column(String(500), nullable=True)
 
-    # RBAC-ready: default role for new users
-    role = Column(String(50), default="user", nullable=False)
+    # RBAC relationships
+    roles = relationship("Role", secondary="user_roles", backref="users")
 
     created_at = Column(
         DateTime(timezone=True),

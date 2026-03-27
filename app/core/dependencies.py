@@ -10,6 +10,7 @@ from app.core.security import decode_access_token
 from app.database.session import get_db
 from app.models.user import User
 from app.services.user_service import get_user_by_id
+from app.services.role_service import get_user_permissions_list
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -49,3 +50,22 @@ def get_current_user(
         )
 
     return user
+
+def require_permission(permission_name: str):
+    """
+    Dependency factory that checks if the current user has the required permission.
+    Raises an HTTP 403 Forbidden exception if the user does not have it.
+    """
+    def permission_dependency(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ) -> User:
+        permissions = get_user_permissions_list(db, user_id=current_user.id)
+        if permission_name not in permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Not enough permissions. Required: {permission_name}",
+            )
+        return current_user
+
+    return permission_dependency
