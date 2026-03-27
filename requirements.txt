@@ -1,4 +1,4 @@
-# ── Core Framework (Unpinned for 3.14) ──
+# ── Core Framework ───────────────────────────────
 fastapi
 uvicorn[standard]
 sqlalchemy
@@ -6,7 +6,14 @@ psycopg[binary]
 pydantic-settings
 pydantic[email]
 
-# ── AI / LLM (Unpinned for 3.14) ──
+# ── Authentication ───────────────────────────────
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+python-multipart
+httpx
+
+# ── AI / LLM ────────────────────────────────────
 langchain
 langchain-core
 langchain-openai
@@ -14,11 +21,11 @@ langchain-community
 langgraph
 langgraph-sdk
 
-# ── ML / Data Science (Unpinned for 3.14 compatibility) ──
+# ── ML / Data Science ───────────────────────────
 pandas
 xgboost
 scikit-learn
 numpy>=2.1.0
 
-# ── Utilities ──────────────────────────────
+# ── Utilities ────────────────────────────────────
 python-dotenv

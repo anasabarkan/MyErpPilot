@@ -1,13 +1,12 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
+from app.api.v1.api import api_v1_router
 from app.database.session import Base, engine
 
-
 # Import models so SQLAlchemy registers them with Base.metadata
-import app.database.schema            # noqa: F401 — Product, SalesHistory, PurchaseOrder
-import app.database.audit_logs        # noqa: F401 — AuditLog
-import app.validation.validation_queue # noqa: F401 — ValidationItem
+import app.models.user  # noqa: F401 — User
 
 
 @asynccontextmanager
@@ -27,10 +26,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
+# ── API routers ──────────────────────────────────
+app.include_router(api_v1_router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Health"])
 def health_check():
     """Root endpoint — health check."""
-    return {"status": "ok", "message": "Omnidata AI Engine is running."}
+    return {"status": "ok", "message": "My ERP Pilot is running."}
