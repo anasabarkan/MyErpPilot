@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models.user import User
+from app.services import audit_service
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -49,4 +50,13 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    
+    audit_service.log_sensitive_crud_event(
+        db,
+        action="create",
+        entity_type="user",
+        entity_id=str(user.id),
+        user_id=user.id, # New user acts as subject and target here, or logged by None
+    )
+    
     return user

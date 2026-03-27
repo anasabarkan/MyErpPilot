@@ -4,3 +4,4 @@ from .permission import Permission
 from .user_role import UserRole
 from .role_permission import RolePermission
 from .approval import ApprovalRequest
+from .audit_log import AuditLog

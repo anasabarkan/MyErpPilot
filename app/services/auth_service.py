@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.services.user_service import create_user, get_user_by_email
+from app.services import audit_service
 
 # ── Google OAuth constants ───────────────────────
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -31,11 +32,14 @@ def signup(db: Session, *, email: str, password: str, full_name: str) -> User:
     """
     existing = get_user_by_email(db, email)
     if existing:
+        audit_service.log_auth_event(db, "signup", "failed", message="Email already exists")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email already exists.",
         )
-    return create_user(db, email=email, full_name=full_name, password=password)
+    user = create_user(db, email=email, full_name=full_name, password=password)
+    audit_service.log_auth_event(db, "signup", "success", user_id=user.id)
+    return user
 
 
 def authenticate(db: Session, *, email: str, password: str) -> str:
@@ -46,20 +50,24 @@ def authenticate(db: Session, *, email: str, password: str) -> str:
     """
     user = get_user_by_email(db, email)
     if not user or not user.hashed_password:
+        audit_service.log_auth_event(db, "login", "failed", message=f"Invalid email: {email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
     if not verify_password(password, user.hashed_password):
+        audit_service.log_auth_event(db, "login", "failed", user_id=user.id, message="Invalid password")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
     if not user.is_active:
+        audit_service.log_auth_event(db, "login", "denied", user_id=user.id, message="Account deactivated")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated.",
         )
+    audit_service.log_auth_event(db, "login", "success", user_id=user.id)
     return create_access_token(user.id)
 
 
@@ -103,6 +111,7 @@ async def google_callback(db: Session, *, code: str) -> str:
         )
 
     if token_response.status_code != 200:
+        audit_service.log_auth_event(db, "google_login", "failed", message="Failed to exchange Google authorization code.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to exchange Google authorization code.",
@@ -111,6 +120,7 @@ async def google_callback(db: Session, *, code: str) -> str:
     token_data = token_response.json()
     google_access_token = token_data.get("access_token")
     if not google_access_token:
+        audit_service.log_auth_event(db, "google_login", "failed", message="Google did not return an access token.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google did not return an access token.",
@@ -124,6 +134,7 @@ async def google_callback(db: Session, *, code: str) -> str:
         )
 
     if userinfo_response.status_code != 200:
+        audit_service.log_auth_event(db, "google_login", "failed", message="Failed to fetch user info from Google.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to fetch user info from Google.",
@@ -159,4 +170,5 @@ async def google_callback(db: Session, *, code: str) -> str:
         db.refresh(user)
 
     # Step 4 — Issue JWT
+    audit_service.log_auth_event(db, "google_login", "success", user_id=user.id)
     return create_access_token(user.id)

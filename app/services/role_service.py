@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.role import Role
 from app.models.user import User
 from app.repositories import role_repository
+from app.services import audit_service
 
 
 def assign_role_to_user(db: Session, user_id: str | UUID, role_name: str) -> None:
@@ -29,6 +30,14 @@ def assign_role_to_user(db: Session, user_id: str | UUID, role_name: str) -> Non
         )
 
     role_repository.assign_role_to_user(db, user_id=user.id, role_id=role.id)
+    
+    audit_service.log_role_event(
+        db,
+        action="assign_role",
+        user_id=user.id, # system or current user depending on route, fallback to target user
+        target_user_id=user.id,
+        role_name=role_name
+    )
 
 
 def remove_role_from_user(db: Session, user_id: str | UUID, role_name: str) -> None:
@@ -49,6 +58,14 @@ def remove_role_from_user(db: Session, user_id: str | UUID, role_name: str) -> N
     if role in user.roles:
         user.roles.remove(role)
         db.commit()
+        
+        audit_service.log_role_event(
+            db,
+            action="remove_role",
+            user_id=user.id,
+            target_user_id=user.id,
+            role_name=role_name
+        )
 
 
 def list_roles(db: Session) -> Sequence[Role]:

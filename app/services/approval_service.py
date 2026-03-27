@@ -9,6 +9,7 @@ from app.models.approval import ApprovalRequest, ApprovalStatus
 from app.repositories import approval_repository
 from app.schemas.approval import ApprovalCreate
 from app.workflows.approval_workflow import ApprovalWorkflow, ApprovalWorkflowTransitionError
+from app.services import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,13 @@ def create_approval_request(
     request_obj = approval_repository.create_request(db, data)
     
     # Audit logic
+    audit_service.log_approval_event(
+        db,
+        action="create",
+        approval_id=str(request_obj.id),
+        user_id=user_id,
+        message=f"Created approval request for action: {request_obj.action_type}"
+    )
     logger.info(f"Audit: User {user_id} created ApprovalRequest {request_obj.id} (Action: {request_obj.action_type})")
     
     return request_obj
@@ -57,6 +65,12 @@ def approve_request(
         validated_at=datetime.now(timezone.utc)
     )
 
+    audit_service.log_approval_event(
+        db,
+        action="approve",
+        approval_id=str(request_id),
+        user_id=validator_id
+    )
     logger.info(f"Audit: User {validator_id} approved ApprovalRequest {request_id}")
     return request_obj
 
@@ -89,6 +103,13 @@ def reject_request(
         validated_at=datetime.now(timezone.utc)
     )
 
+    audit_service.log_approval_event(
+        db,
+        action="reject",
+        approval_id=str(request_id),
+        user_id=validator_id,
+        message=rejection_reason
+    )
     logger.info(f"Audit: User {validator_id} rejected ApprovalRequest {request_id}. Reason: {rejection_reason}")
     return request_obj
 
@@ -123,6 +144,17 @@ def execute_request(
         request_obj, 
         executor_id=executor_id, 
         executed_at=datetime.now(timezone.utc)
+    )
+
+    audit_service.log_execution_event(
+        db,
+        action="execute_request",
+        approval_id=str(request_id),
+        user_id=executor_id,
+        status="success" if final_status == ApprovalStatus.executed else "failed",
+        # We don't have the explicit error string initialized outside the try-except scope in current code
+        # unless we extract e, but we can just say failed execution
+        message="Execution successful" if final_status == ApprovalStatus.executed else "Execution failed"
     )
 
     logger.info(f"Audit: User {executor_id} executed ApprovalRequest {request_id} with status {final_status}")
