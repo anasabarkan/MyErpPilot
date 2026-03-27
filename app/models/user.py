@@ -35,6 +35,13 @@ class User(Base):
     # RBAC relationships
     roles = relationship("Role", secondary="user_roles", backref="users")
 
+    # Data Source relationships
+    data_sources = relationship(
+        "DataSource",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
