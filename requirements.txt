@@ -2,7 +2,8 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
-psycopg[binary]
+psycopg2-binary
+alembic
 pydantic-settings
 pydantic[email]
 
@@ -13,19 +14,13 @@ bcrypt==4.0.1
 python-multipart
 httpx
 
-# ── AI / LLM ────────────────────────────────────
+# ── AI / LLM Orchestration ───────────────────────
 langchain
 langchain-core
 langchain-openai
 langchain-community
 langgraph
 langgraph-sdk
-
-# ── ML / Data Science ───────────────────────────
-pandas
-xgboost
-scikit-learn
-numpy>=2.1.0
 
 # ── Utilities ────────────────────────────────────
 python-dotenv

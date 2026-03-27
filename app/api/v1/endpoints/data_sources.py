@@ -112,12 +112,12 @@ def update_data_source(
     return ds_resp
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_data_source(
     id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Any:
+) -> None:
     """
     Delete a data source.
     """
