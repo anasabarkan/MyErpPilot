@@ -26,7 +26,7 @@ def get_role_by_name(db: Session, name: str) -> Role | None:
 
 
 def get_all_roles(db: Session) -> Sequence[Role]:
-    return db.scalars(select(Role)).all()
+    return db.scalars(select(Role).where(Role.name != "admin").order_by(Role.name.asc())).all()
 
 
 def assign_role_to_user(db: Session, user_id: str |  UUID, role_id: str | UUID) -> None:

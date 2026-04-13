@@ -36,7 +36,7 @@ def create_role(
     "/",
     response_model=list[RoleResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("manage_roles"))],
+    dependencies=[Depends(require_permission("manage_users"))],
 )
 def get_roles(
     db: Session = Depends(get_db),
@@ -44,7 +44,7 @@ def get_roles(
 ):
     """
     Get all available roles.
-    Requires permission: 'manage_roles'.
+    Requires permission: 'manage_users'.
     """
     return role_service.list_roles(db)
 

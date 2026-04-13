@@ -60,6 +60,12 @@ def require_permission(permission_name: str):
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db)
     ) -> User:
+        if not current_user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password change required before accessing the web app.",
+            )
+
         permissions = get_user_permissions_list(db, user_id=current_user.id)
         if permission_name not in permissions:
             raise HTTPException(

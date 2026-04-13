@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.services.user_service import create_user, get_user_by_email
 from app.services import audit_service
@@ -69,6 +69,65 @@ def authenticate(db: Session, *, email: str, password: str) -> str:
         )
     audit_service.log_auth_event(db, "login", "success", user_id=user.id)
     return create_access_token(user.id)
+
+
+def change_password_first_login(
+    db: Session,
+    *,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> User:
+    """
+    Force first-login users to rotate password before accessing the app.
+
+    This only applies to local accounts with ``is_verified=False``.
+    """
+    if user.provider != "local":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="First-login password change is only supported for local accounts.",
+        )
+
+    if user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is already verified.",
+        )
+
+    if not user.hashed_password or not verify_password(current_password, user.hashed_password):
+        audit_service.log_auth_event(
+            db,
+            "first_login_password_change",
+            "failed",
+            user_id=user.id,
+            message="Invalid current password.",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is invalid.",
+        )
+
+    if current_password == new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password.",
+        )
+
+    user.hashed_password = hash_password(new_password)
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
+
+    audit_service.log_auth_event(
+        db,
+        "first_login_password_change",
+        "success",
+        user_id=user.id,
+        message="Password changed and account verified.",
+    )
+
+    return user
 
 
 # ─────────────────────────────────────────────────

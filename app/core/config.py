@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
+    FRONTEND_GOOGLE_CALLBACK_URL: str = "http://localhost:5173/auth/google/callback"
+    BACKEND_CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    ADMIN_SEED_EMAIL: str = "admin@myerppilot.app"
+    ADMIN_SEED_PASSWORD: str = "Admin12345!"
+    ADMIN_SEED_FULL_NAME: str = "System Administrator"
 
     @property
     def database_url(self) -> str:
@@ -37,6 +42,10 @@ class Settings(BaseSettings):
             f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+    @property
+    def backend_cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
 
     class Config:
         env_file = ".env"

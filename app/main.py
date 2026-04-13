@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_v1_router
+from app.core.config import settings
 from app.database.session import Base, engine
 
 # Import models so SQLAlchemy registers them with Base.metadata
@@ -68,6 +70,14 @@ app = FastAPI(
         "url": "https://myerppilot.com/license",
     },
     swagger_ui_parameters={"defaultModelsExpandDepth": -1}, # Hide standard Pydantic models in Swagger
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.backend_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ── API routers ──────────────────────────────────
