@@ -44,5 +44,42 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Odoo stack for local ERP integration testing (optional profile)
+  odoo-db:
+    image: postgres:16-alpine
+    container_name: erp-pilot-odoo-db
+    profiles: ["odoo"]
+    environment:
+      POSTGRES_DB: ${ODOO_DB_NAME:-odoo}
+      POSTGRES_USER: ${ODOO_DB_USER:-odoo}
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:-odoo}
+    volumes:
+      - odoo_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  odoo:
+    image: odoo:17
+    container_name: erp-pilot-odoo
+    profiles: ["odoo"]
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    ports:
+      - "8069:8069"
+    environment:
+      HOST: odoo-db
+      USER: ${ODOO_DB_USER:-odoo}
+      PASSWORD: ${ODOO_DB_PASSWORD:-odoo}
+    volumes:
+      - odoo_data:/var/lib/odoo
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  odoo_data:
+  odoo_db_data:
