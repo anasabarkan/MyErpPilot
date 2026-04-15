@@ -1,61 +1,67 @@
 """
-Pydantic schemas for DataSource.
+Pydantic schemas for Odoo data sources.
 """
 
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class OdooModel(BaseModel):
+    model: str
+    name: str
 
 
 class DataSourceBase(BaseModel):
-    name: str = Field(..., example="Production DB")
-    db_type: str = Field(default="postgresql", example="postgresql")
-    host: str = Field(..., example="localhost")
-    port: str = Field(..., example="5432")
-    database: str = Field(..., example="my_erp")
-    username: str = Field(..., example="postgres")
-    is_active: bool = Field(default=True)
+    name: str = Field(..., examples=["Odoo Production"])
+    odoo_url: str = Field(..., examples=["http://localhost:8069"])
+    database_name: str = Field(..., examples=["odoo"])
+    username: str = Field(..., examples=["admin"])
 
 
 class DataSourceCreate(DataSourceBase):
-    password: str = Field(..., example="secret")
+    api_key: str = Field(..., min_length=1)
 
 
 class DataSourceUpdate(BaseModel):
     name: Optional[str] = None
-    host: Optional[str] = None
-    port: Optional[str] = None
-    database: Optional[str] = None
+    odoo_url: Optional[str] = None
+    database_name: Optional[str] = None
     username: Optional[str] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
+    api_key: Optional[str] = Field(default=None, min_length=1)
+
+
+class DataSourceConnectionTestRequest(BaseModel):
+    odoo_url: str
+    database_name: str
+    username: str
+    api_key: str = Field(..., min_length=1)
 
 
 class DataSourceResponse(DataSourceBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
-    owner_id: UUID
+    created_by: UUID
+    is_active: bool
+    api_key_configured: bool
+    models_count: int = 0
+    last_tested_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    last_tested_at: Optional[datetime] = None
-    # Provide a masked placeholder instead of exposing the password
-    password_masked: str = Field(default="********")
-    # Determine if schema_cache is populated (don't send huge schemas automatically)
-    has_schema_cache: bool = Field(default=False)
 
-    class Config:
-        orm_mode = True
-        from_attributes = True
+
+class DataSourceModelsResponse(BaseModel):
+    models: list[OdooModel]
 
 
 class DataSourceTestResponse(BaseModel):
     success: bool
-    message: str = Field(..., example="Connection successful")
+    message: str
+    models: list[OdooModel] = Field(default_factory=list)
 
 
-class DataSourceSchemaResponse(BaseModel):
-    tables: Dict[str, List[str]] = Field(
-        ...,
-        example={"users": ["id", "email"], "orders": ["id", "total"]}
-    )
+class ActiveDataSourceResponse(BaseModel):
+    active_data_source: Optional[DataSourceResponse] = None

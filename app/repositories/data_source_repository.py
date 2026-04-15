@@ -1,29 +1,34 @@
 """
-Repository for DataSource operations.
+Repository for Odoo DataSource persistence operations.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+
 from app.models.data_source import DataSource
-from app.schemas.data_source import DataSourceCreate, DataSourceUpdate
 
 
-def create_data_source(db: Session, obj_in: DataSourceCreate, owner_id: UUID) -> DataSource:
-    """
-    Create a new data source connection.
-    """
+def create_data_source(
+    db: Session,
+    *,
+    name: str,
+    odoo_url: str,
+    database_name: str,
+    username: str,
+    api_key_encrypted: str,
+    created_by: UUID,
+    is_active: bool = False,
+) -> DataSource:
     db_obj = DataSource(
-        name=obj_in.name,
-        db_type=obj_in.db_type,
-        host=obj_in.host,
-        port=obj_in.port,
-        database=obj_in.database,
-        username=obj_in.username,
-        password=obj_in.password,  # Storing as plain for now; structure for encryption if needed
-        is_active=obj_in.is_active,
-        owner_id=owner_id,
+        name=name,
+        odoo_url=odoo_url,
+        database_name=database_name,
+        username=username,
+        api_key_encrypted=api_key_encrypted,
+        created_by=created_by,
+        is_active=is_active,
     )
     db.add(db_obj)
     db.commit()
@@ -32,35 +37,24 @@ def create_data_source(db: Session, obj_in: DataSourceCreate, owner_id: UUID) ->
 
 
 def get_data_source_by_id(db: Session, data_source_id: UUID) -> Optional[DataSource]:
-    """
-    Retrieve a data source by its ID.
-    """
     return db.query(DataSource).filter(DataSource.id == data_source_id).first()
 
 
-def list_data_sources_by_user(
-    db: Session, owner_id: UUID, skip: int = 0, limit: int = 100
-) -> List[DataSource]:
-    """
-    Get all data sources for a given user.
-    """
+def list_data_sources(db: Session, *, skip: int = 0, limit: int = 100) -> list[DataSource]:
     return (
         db.query(DataSource)
-        .filter(DataSource.owner_id == owner_id)
+        .order_by(DataSource.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
 
 
-def update_data_source(
-    db: Session, db_obj: DataSource, obj_in: DataSourceUpdate
-) -> DataSource:
-    """
-    Update an existing data source.
-    """
-    update_data = obj_in.model_dump(exclude_unset=True)
-    
+def get_active_data_source(db: Session) -> Optional[DataSource]:
+    return db.query(DataSource).filter(DataSource.is_active.is_(True)).first()
+
+
+def update_data_source(db: Session, db_obj: DataSource, update_data: dict[str, Any]) -> DataSource:
     for field, value in update_data.items():
         setattr(db_obj, field, value)
 
@@ -71,28 +65,28 @@ def update_data_source(
 
 
 def delete_data_source(db: Session, data_source_id: UUID) -> bool:
-    """
-    Delete a data source.
-    """
     db_obj = get_data_source_by_id(db, data_source_id)
     if not db_obj:
         return False
-        
+
     db.delete(db_obj)
     db.commit()
     return True
 
 
-def save_schema_cache(db: Session, data_source_id: UUID, schema_cache: Dict[str, Any]) -> Optional[DataSource]:
-    """
-    Save the extracted schema to the DataSource record.
-    """
-    db_obj = get_data_source_by_id(db, data_source_id)
-    if not db_obj:
-        return None
-        
-    db_obj.schema_cache = schema_cache
+def save_models_cache(db: Session, db_obj: DataSource, models: list[dict[str, str]]) -> DataSource:
+    db_obj.models_cache = models
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
     return db_obj
+
+
+def activate_data_source(db: Session, db_obj: DataSource) -> DataSource:
+    db.query(DataSource).update({DataSource.is_active: False}, synchronize_session=False)
+    db_obj.is_active = True
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+

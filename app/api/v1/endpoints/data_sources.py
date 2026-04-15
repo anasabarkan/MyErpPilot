@@ -1,8 +1,8 @@
 """
-API Endpoints for DataSource management.
+API endpoints for Odoo data source management.
 """
 
-from typing import Any, List
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,25 +10,86 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, require_permission
 from app.database.session import get_db
+from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
 from app.models.user import User
 from app.schemas.data_source import (
+    ActiveDataSourceResponse,
+    DataSourceConnectionTestRequest,
     DataSourceCreate,
+    DataSourceModelsResponse,
     DataSourceResponse,
-    DataSourceUpdate,
     DataSourceTestResponse,
-    DataSourceSchemaResponse,
+    DataSourceUpdate,
 )
-from app.repositories import data_source_repository as repo
 from app.services import data_source_service as service
 
 router = APIRouter()
+
+
+def _raise_http_from_odoo_error(exc: Exception) -> None:
+    message = service.sanitize_odoo_error_message(exc)
+    if isinstance(exc, OdooConnectionError):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from exc
+    if isinstance(exc, (OdooAuthenticationError, OdooRequestError, ValueError, RuntimeError)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message) from exc
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=message) from exc
+
+
+@router.post(
+    "/test-connection",
+    response_model=DataSourceTestResponse,
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+)
+def test_connection_with_payload(
+    *,
+    payload: DataSourceConnectionTestRequest,
+) -> Any:
+    """
+    Validate Odoo credentials without persisting a data source.
+    """
+    try:
+        return service.test_connection_payload(payload)
+    except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
+        _raise_http_from_odoo_error(exc)
+
+
+@router.get(
+    "/",
+    response_model=list[DataSourceResponse],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+)
+def list_data_sources(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    List all Odoo data sources (admin-managed/global scope).
+    """
+    return service.list_data_sources(db, skip=skip, limit=limit)
+
+
+@router.get(
+    "/active",
+    response_model=ActiveDataSourceResponse,
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+)
+def get_active_data_source(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Retrieve the globally active Odoo data source.
+    """
+    return {"active_data_source": service.get_active_data_source(db)}
 
 
 @router.post(
     "/",
     response_model=DataSourceResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("manage_data_sources"))],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
 def create_data_source(
     *,
@@ -37,176 +98,143 @@ def create_data_source(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Create a new external data source connection.
+    Create and store a new Odoo data source.
     """
-    data_source = repo.create_data_source(
-        db=db, obj_in=data_source_in, owner_id=current_user.id
-    )
-    # Mask password for response parsing
-    ds_resp = DataSourceResponse.from_orm(data_source)
-    ds_resp.has_schema_cache = bool(data_source.schema_cache)
-    return ds_resp
-
-
-@router.get(
-    "/",
-    response_model=List[DataSourceResponse],
-    dependencies=[Depends(require_permission("view_data_sources"))],
-)
-def list_data_sources(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Any:
-    """
-    List data sources for the current user.
-    """
-    data_sources = repo.list_data_sources_by_user(
-        db=db, owner_id=current_user.id, skip=skip, limit=limit
-    )
-    
-    results = []
-    for ds in data_sources:
-        ds_resp = DataSourceResponse.from_orm(ds)
-        ds_resp.has_schema_cache = bool(ds.schema_cache)
-        results.append(ds_resp)
-        
-    return results
+    try:
+        return service.create_data_source(db, data_source_in, current_user.id)
+    except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
+        _raise_http_from_odoo_error(exc)
 
 
 @router.get(
     "/{id}",
     response_model=DataSourceResponse,
-    dependencies=[Depends(require_permission("view_data_sources"))],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
 def get_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Get a specific data source by ID.
+    Get a data source by id.
     """
-    data_source = repo.get_data_source_by_id(db=db, data_source_id=id)
+    data_source = service.get_data_source_or_none(db, id)
     if not data_source:
-        raise HTTPException(status_code=404, detail="DataSource not found")
-        
-    if data_source.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-        
-    ds_resp = DataSourceResponse.from_orm(data_source)
-    ds_resp.has_schema_cache = bool(data_source.schema_cache)
-    return ds_resp
+        raise HTTPException(status_code=404, detail="Data source not found.")
+    return data_source
 
 
-@router.put(
+@router.patch(
     "/{id}",
     response_model=DataSourceResponse,
-    dependencies=[Depends(require_permission("manage_data_sources"))],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
 def update_data_source(
     id: UUID,
     *,
     db: Session = Depends(get_db),
     data_source_in: DataSourceUpdate,
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Update a data source.
+    Update an existing Odoo data source.
     """
-    data_source = repo.get_data_source_by_id(db=db, data_source_id=id)
+    data_source = service.get_data_source_or_none(db, id)
     if not data_source:
-        raise HTTPException(status_code=404, detail="DataSource not found")
-        
-    if data_source.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-        
-    data_source = repo.update_data_source(db=db, db_obj=data_source, obj_in=data_source_in)
-    
-    ds_resp = DataSourceResponse.from_orm(data_source)
-    ds_resp.has_schema_cache = bool(data_source.schema_cache)
-    return ds_resp
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
+    try:
+        return service.update_data_source(db, data_source, data_source_in)
+    except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
+        _raise_http_from_odoo_error(exc)
 
 
 @router.delete(
     "/{id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    dependencies=[Depends(require_permission("manage_data_sources"))],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
 def delete_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),
 ) -> None:
     """
-    Delete a data source.
+    Delete an Odoo data source.
     """
-    data_source = repo.get_data_source_by_id(db=db, data_source_id=id)
-    if not data_source:
-        raise HTTPException(status_code=404, detail="DataSource not found")
-        
-    if data_source.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-        
-    repo.delete_data_source(db=db, data_source_id=id)
+    deleted = service.delete_data_source(db, id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Data source not found.")
     return None
 
 
 @router.post(
     "/{id}/test",
     response_model=DataSourceTestResponse,
-    dependencies=[Depends(require_permission("test_data_source"))],
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
-def test_data_source_connection(
+def test_saved_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Test the connection to an external database.
+    Validate a saved Odoo source and refresh its model cache.
     """
-    data_source = repo.get_data_source_by_id(db=db, data_source_id=id)
+    data_source = service.get_data_source_or_none(db, id)
     if not data_source:
-        raise HTTPException(status_code=404, detail="DataSource not found")
-        
-    if data_source.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-        
-    result = service.test_connection(db=db, data_source=data_source)
-    return result
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
+    try:
+        return service.test_saved_data_source(db, data_source)
+    except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
+        _raise_http_from_odoo_error(exc)
 
 
 @router.get(
-    "/{id}/schema",
-    response_model=DataSourceSchemaResponse,
-    dependencies=[Depends(require_permission("query_data"))],
+    "/{id}/models",
+    response_model=DataSourceModelsResponse,
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
 )
-def get_data_source_schema(
+def get_data_source_models(
     id: UUID,
     refresh: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),
 ) -> Any:
     """
-    Get the tables and columns for the database.
-    Optionally pass `?refresh=true` to force a new pull.
+    Return models for a saved Odoo source (cached unless refresh=true).
     """
-    data_source = repo.get_data_source_by_id(db=db, data_source_id=id)
+    data_source = service.get_data_source_or_none(db, id)
     if not data_source:
-        raise HTTPException(status_code=404, detail="DataSource not found")
-        
-    if data_source.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-        
-    # Standard pull from cache if it exists and refresh is not requested
-    if not refresh and data_source.schema_cache:
-        return data_source.schema_cache
-        
-    # Otherwise, fresh extraction
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
     try:
-        schema_data = service.cache_schema(db=db, data_source_id=id)
-        return schema_data
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to extract schema: {str(e)}")
+        models = service.get_data_source_models(db, data_source, refresh=refresh)
+    except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
+        _raise_http_from_odoo_error(exc)
+
+    return {"models": models}
+
+
+@router.post(
+    "/{id}/activate",
+    response_model=DataSourceResponse,
+    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+)
+def activate_data_source(
+    id: UUID,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Mark a source as globally active and deactivate all others.
+    """
+    data_source = service.get_data_source_or_none(db, id)
+    if not data_source:
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
+    return service.activate_data_source(db, data_source)
+

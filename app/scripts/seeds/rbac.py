@@ -15,6 +15,7 @@ DEFAULT_PERMISSIONS = [
     "approve_action",
     "execute_action",
     "view_audit_logs",
+    "manage_odoo_sources",
     "manage_data_sources",
     "view_data_sources",
     "test_data_source",

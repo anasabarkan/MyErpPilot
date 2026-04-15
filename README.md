@@ -1,98 +1,67 @@
-# My ERP Pilot — FastAPI + PostgreSQL + Adminer
+# My ERP Pilot Backend
 
-A containerized FastAPI backend with PostgreSQL and Adminer, orchestrated via Docker Compose.
+FastAPI backend with PostgreSQL, RBAC, and Odoo data-source management.
 
-## Quick Start
+## Quick start
 
 ```bash
 docker compose up --build
 ```
 
-All three services will start automatically. The API waits for PostgreSQL to be healthy before connecting.
+Services:
 
-## Access Points
+1. API docs: `http://localhost:8000/docs`
+2. ReDoc: `http://localhost:8000/redoc`
+3. Adminer: `http://localhost:8080`
 
-| Service       | URL                          | Description                      |
-|---------------|------------------------------|----------------------------------|
-| **API Docs**  | http://localhost:8000/docs   | Interactive Swagger UI           |
-| **ReDoc**     | http://localhost:8000/redoc  | Alternative API documentation    |
-| **Adminer**   | http://localhost:8080        | Database management interface    |
-| **API Root**  | http://localhost:8000        | Health check endpoint            |
+## Optional local Odoo stack
 
-## Adminer — PostgreSQL Connection
-
-When logging into Adminer, use these settings:
-
-| Field      | Value        |
-|------------|--------------|
-| System     | PostgreSQL   |
-| Server     | `db`         |
-| Username   | `postgres`   |
-| Password   | `postgres`   |
-| Database   | `erp_pilot`  |
-
-## API Endpoints
-
-| Method   | Endpoint         | Description        |
-|----------|------------------|--------------------|
-| `GET`    | `/`              | Health check       |
-| `POST`   | `/users/`        | Create a user      |
-| `GET`    | `/users/`        | List all users     |
-| `GET`    | `/users/{id}`    | Get user by ID     |
-| `DELETE` | `/users/{id}`    | Delete user by ID  |
-
-### Example — Create a User
+The compose file includes an optional Odoo profile for local development:
 
 ```bash
-curl -X POST http://localhost:8000/users/ \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Alice", "email": "alice@example.com"}'
+docker compose --profile odoo up --build
 ```
 
-## Project Structure
+Additional services:
 
-```
-my-erp-pilot/
-├── app/
-│   ├── main.py            # FastAPI entry point
-│   ├── config.py           # Settings from env vars
-│   ├── database/
-│   │   └── session.py      # SQLAlchemy engine & session
-│   ├── models/
-│   │   └── user.py         # User ORM model
-│   ├── schemas/
-│   │   └── user.py         # Pydantic schemas
-│   ├── services/
-│   │   └── user.py         # CRUD business logic
-│   └── routers/
-│       └── user.py         # API route handlers
-├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml
-├── .env
-└── README.md
-```
+1. Odoo: `http://localhost:8069`
+2. Odoo PostgreSQL: internal service `odoo-db`
 
-## Environment Variables
+Use these defaults for the Odoo profile unless overridden in `.env`:
 
-Defined in `.env` — shared by both `api` and `db` services:
+1. `ODOO_DB_NAME=odoo`
+2. `ODOO_DB_USER=odoo`
+3. `ODOO_DB_PASSWORD=odoo`
 
-| Variable            | Default      |
-|---------------------|--------------|
-| `POSTGRES_USER`     | `postgres`   |
-| `POSTGRES_PASSWORD` | `postgres`   |
-| `POSTGRES_DB`       | `erp_pilot`  |
-| `POSTGRES_HOST`     | `db`         |
-| `POSTGRES_PORT`     | `5432`       |
+## Odoo credential encryption
 
-## Stopping the Project
+Set a valid Fernet key for credential encryption at rest:
+
+1. `ODOO_CREDENTIALS_ENCRYPTION_KEY=<your_fernet_key>`
+
+Generate one with Python:
 
 ```bash
-docker compose down
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-To also remove the database volume (deletes all data):
+Without this key, Odoo credential save/test endpoints will fail.
 
-```bash
-docker compose down -v
-```
+## API namespaces
+
+1. `GET /api/v1/` health and auth/user/role/audit APIs
+2. ` /api/v1/data-sources/*` Odoo data-source settings APIs
+
+## Odoo settings APIs
+
+1. `POST /api/v1/data-sources/test-connection`
+2. `POST /api/v1/data-sources/`
+3. `GET /api/v1/data-sources/`
+4. `GET /api/v1/data-sources/active`
+5. `PATCH /api/v1/data-sources/{id}`
+6. `DELETE /api/v1/data-sources/{id}`
+7. `POST /api/v1/data-sources/{id}/test`
+8. `GET /api/v1/data-sources/{id}/models`
+9. `POST /api/v1/data-sources/{id}/activate`
+
+All settings endpoints are protected by `manage_odoo_sources`.

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ODOO_CREDENTIALS_ENCRYPTION_KEY: str = ""
+    ODOO_DB_NAME: str = "odoo"
+    ODOO_DB_USER: str = "odoo"
+    ODOO_DB_PASSWORD: str = "odoo"
 
     # ── Google OAuth2 ───────────────────────────
     GOOGLE_CLIENT_ID: str = ""
