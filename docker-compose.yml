@@ -9,6 +9,9 @@ services:
       - .env
     environment:
       - POSTGRES_HOST=db
+      - FERNET_KEY=${FERNET_KEY:-}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - AUTO_GENERATE_FERNET_KEY=${AUTO_GENERATE_FERNET_KEY:-false}
     volumes:
       - .:/code
     depends_on:

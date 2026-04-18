@@ -60,7 +60,7 @@ def test_update_data_source_encrypts_api_key(monkeypatch):
     update_payload = DataSourceUpdate(api_key="new-key")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(service, "encrypt_secret", lambda _value: "encrypted-new-key")
+    monkeypatch.setattr(service, "encrypt_value", lambda _value: "encrypted-new-key")
 
     def fake_update_data_source(_db, db_obj, update_data):
         captured["update_data"] = update_data
@@ -73,4 +73,3 @@ def test_update_data_source_encrypts_api_key(monkeypatch):
 
     assert updated.api_key_encrypted == "encrypted-new-key"
     assert captured["update_data"]["api_key_encrypted"] == "encrypted-new-key"  # type: ignore[index]
-

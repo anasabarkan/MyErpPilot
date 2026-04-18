@@ -16,7 +16,7 @@ class OdooModel(BaseModel):
 
 class DataSourceBase(BaseModel):
     name: str = Field(..., examples=["Odoo Production"])
-    odoo_url: str = Field(..., examples=["http://localhost:8069"])
+    odoo_url: str = Field(..., examples=["http://odoo:8069"])
     database_name: str = Field(..., examples=["odoo"])
     username: str = Field(..., examples=["admin"])
 

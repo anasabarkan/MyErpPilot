@@ -10,7 +10,6 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.security import decrypt_secret, encrypt_secret
 from app.integrations.odoo import (
     OdooAuthenticationError,
     OdooConnectionError,
@@ -20,6 +19,7 @@ from app.integrations.odoo import (
 from app.models.data_source import DataSource
 from app.repositories import data_source_repository as repo
 from app.schemas.data_source import DataSourceConnectionTestRequest, DataSourceCreate, DataSourceUpdate
+from app.security.encryption import decrypt_value, encrypt_value
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def test_connection_payload(payload: DataSourceConnectionTestRequest) -> dict[st
 
 
 def create_data_source(db: Session, obj_in: DataSourceCreate, created_by: UUID) -> DataSource:
-    encrypted_api_key = encrypt_secret(obj_in.api_key)
+    encrypted_api_key = encrypt_value(obj_in.api_key)
     return repo.create_data_source(
         db,
         name=obj_in.name.strip(),
@@ -99,7 +99,7 @@ def update_data_source(db: Session, db_obj: DataSource, obj_in: DataSourceUpdate
     if obj_in.username is not None:
         update_data["username"] = obj_in.username.strip()
     if obj_in.api_key is not None:
-        update_data["api_key_encrypted"] = encrypt_secret(obj_in.api_key)
+        update_data["api_key_encrypted"] = encrypt_value(obj_in.api_key)
 
     if not update_data:
         return db_obj
@@ -109,7 +109,7 @@ def update_data_source(db: Session, db_obj: DataSource, obj_in: DataSourceUpdate
 
 def _decrypt_data_source_api_key(data_source: DataSource) -> str:
     try:
-        return decrypt_secret(data_source.api_key_encrypted)
+        return decrypt_value(data_source.api_key_encrypted)
     except ValueError as exc:
         logger.error("Failed to decrypt API key for data source %s", data_source.id)
         raise OdooRequestError("Stored Odoo credentials are invalid.") from exc
@@ -181,5 +181,5 @@ def sanitize_odoo_error_message(exc: Exception) -> str:
     if isinstance(exc, OdooRequestError):
         return str(exc)
     if isinstance(exc, RuntimeError):
-        return "Server encryption key for Odoo credentials is missing or invalid."
+        return str(exc)
     return "Unexpected Odoo integration error."

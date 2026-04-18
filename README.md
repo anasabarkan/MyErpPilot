@@ -37,7 +37,8 @@ Use these defaults for the Odoo profile unless overridden in `.env`:
 
 Set a valid Fernet key for credential encryption at rest:
 
-1. `ODOO_CREDENTIALS_ENCRYPTION_KEY=<your_fernet_key>`
+1. `FERNET_KEY=<generated_key>` (preferred)
+2. Optional fallback: `ENCRYPTION_KEY=<generated_key>`
 
 Generate one with Python:
 
@@ -45,7 +46,14 @@ Generate one with Python:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Without this key, Odoo credential save/test endpoints will fail.
+Equivalent Python snippet:
+
+```python
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+```
+
+Without a valid key, Odoo credential save/test endpoints will fail with a clear configuration error.
 
 ## API namespaces
 

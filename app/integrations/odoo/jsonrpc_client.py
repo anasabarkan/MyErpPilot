@@ -96,23 +96,74 @@ class OdooJsonRpcClient:
 
         return result
 
-    def list_models(self, user_id: int) -> list[dict[str, str]]:
-        result = self._call(
+    def execute_kw(
+        self,
+        *,
+        user_id: int,
+        model: str,
+        method: str,
+        args: list[object] | None = None,
+        kwargs: dict[str, object] | None = None,
+    ) -> object:
+        return self._call(
             "object",
             "execute_kw",
             [
                 self.database_name,
                 user_id,
                 self.api_key,
-                "ir.model",
-                "search_read",
-                [[]],
-                {"fields": ["model", "name"], "order": "model asc"},
+                model,
+                method,
+                args or [],
+                kwargs or {},
             ],
         )
 
+    def search_count(self, *, user_id: int, model: str, domain: list[object] | None = None) -> int:
+        result = self.execute_kw(
+            user_id=user_id,
+            model=model,
+            method="search_count",
+            args=[domain or []],
+        )
+        if not isinstance(result, int):
+            raise OdooRequestError(f"Unexpected search_count response for model '{model}'.")
+        return result
+
+    def search_read(
+        self,
+        *,
+        user_id: int,
+        model: str,
+        domain: list[object] | None = None,
+        fields: list[str] | None = None,
+        limit: int = 80,
+        order: str | None = None,
+    ) -> list[dict[str, object]]:
+        kwargs: dict[str, object] = {"fields": fields or [], "limit": limit}
+        if order:
+            kwargs["order"] = order
+
+        result = self.execute_kw(
+            user_id=user_id,
+            model=model,
+            method="search_read",
+            args=[domain or []],
+            kwargs=kwargs,
+        )
         if not isinstance(result, list):
-            raise OdooRequestError("Unexpected Odoo model list response.")
+            raise OdooRequestError(f"Unexpected search_read response for model '{model}'.")
+        return [row for row in result if isinstance(row, dict)]
+
+    def list_models(self, user_id: int) -> list[dict[str, str]]:
+        result = self.search_read(
+            user_id=user_id,
+            model="ir.model",
+            domain=[],
+            fields=["model", "name"],
+            limit=5000,
+            order="model asc",
+        )
 
         models: list[dict[str, str]] = []
         for item in result:
@@ -124,4 +175,3 @@ class OdooJsonRpcClient:
                 models.append({"model": model, "name": name})
 
         return models
-

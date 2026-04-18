@@ -4,33 +4,57 @@ Centralised application settings.
 All values are loaded from environment variables / .env file.
 """
 
-from pydantic_settings import BaseSettings
+from __future__ import annotations
+
+import logging
+
+from cryptography.fernet import Fernet
+from pydantic import PrivateAttr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+_MISSING_FERNET_KEY_MESSAGE = (
+    "Fernet encryption key is missing. Set FERNET_KEY (preferred) or ENCRYPTION_KEY in your "
+    "environment. Generate one with: from cryptography.fernet import Fernet; "
+    "print(Fernet.generate_key().decode())"
+)
+
+_INVALID_FERNET_KEY_MESSAGE = (
+    "Fernet encryption key is invalid. FERNET_KEY/ENCRYPTION_KEY must be a URL-safe "
+    "base64-encoded 32-byte key."
+)
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # ── PostgreSQL ──────────────────────────────
+    model_config = SettingsConfigDict(env_file=".env")
+
+    # PostgreSQL
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "erp_pilot"
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
 
-    # ── OpenAI ──────────────────────────────────
+    # OpenAI
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # ── JWT ─────────────────────────────────────
+    # JWT + encryption
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    ODOO_CREDENTIALS_ENCRYPTION_KEY: str = ""
+    FERNET_KEY: str = ""
+    ENCRYPTION_KEY: str = ""
+    AUTO_GENERATE_FERNET_KEY: bool = False
+    ODOO_CREDENTIALS_ENCRYPTION_KEY: str = ""  # Backward compatibility fallback
     ODOO_DB_NAME: str = "odoo"
     ODOO_DB_USER: str = "odoo"
     ODOO_DB_PASSWORD: str = "odoo"
 
-    # ── Google OAuth2 ───────────────────────────
+    # Google OAuth2
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
@@ -39,6 +63,8 @@ class Settings(BaseSettings):
     ADMIN_SEED_EMAIL: str = "admin@myerppilot.app"
     ADMIN_SEED_PASSWORD: str = "Admin12345!"
     ADMIN_SEED_FULL_NAME: str = "System Administrator"
+
+    _runtime_fernet_key: str = PrivateAttr(default="")
 
     @property
     def database_url(self) -> str:
@@ -51,8 +77,42 @@ class Settings(BaseSettings):
     def backend_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
 
-    class Config:
-        env_file = ".env"
+    def _configured_fernet_key(self) -> str:
+        if self._runtime_fernet_key:
+            return self._runtime_fernet_key
 
+        for candidate in (
+            self.FERNET_KEY,
+            self.ENCRYPTION_KEY,
+            self.ODOO_CREDENTIALS_ENCRYPTION_KEY,
+        ):
+            if candidate and candidate.strip():
+                return candidate.strip()
+
+        return ""
+
+    @staticmethod
+    def validate_fernet_key_format(key: str) -> None:
+        try:
+            Fernet(key.encode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - surface a clean config error
+            raise ValueError(_INVALID_FERNET_KEY_MESSAGE) from exc
+
+    def get_fernet_key(self) -> str:
+        key = self._configured_fernet_key()
+        if not key:
+            if self.AUTO_GENERATE_FERNET_KEY:
+                key = Fernet.generate_key().decode("utf-8")
+                self._runtime_fernet_key = key
+                logger.warning(
+                    "AUTO_GENERATE_FERNET_KEY is enabled, generated ephemeral key. "
+                    "Persist this key to FERNET_KEY/ENCRYPTION_KEY or previously encrypted "
+                    "credentials will fail after restart."
+                )
+                return key
+            raise ValueError(_MISSING_FERNET_KEY_MESSAGE)
+
+        self.validate_fernet_key_format(key)
+        return key
 
 settings = Settings()

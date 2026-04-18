@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_v1_router
+from app.api.v1.endpoints.dashboard import router as dashboard_router
 from app.core.config import settings
 from app.database.session import Base, engine
 
@@ -82,6 +83,7 @@ app.add_middleware(
 
 # ── API routers ──────────────────────────────────
 app.include_router(api_v1_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/dashboard", include_in_schema=False)
 
 
 @app.get("/", tags=["Health"])

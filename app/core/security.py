@@ -2,15 +2,14 @@
 Security utilities: password hashing and JWT token management.
 """
 
-from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.security.encryption import decrypt_value, encrypt_value, get_fernet_cipher
 
 # ── Password hashing ────────────────────────────
 
@@ -60,48 +59,19 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
-@lru_cache(maxsize=1)
-def _odoo_fernet() -> Fernet:
-    """
-    Build a Fernet instance from the configured Odoo encryption key.
-    """
-    raw_key = settings.ODOO_CREDENTIALS_ENCRYPTION_KEY.strip()
-    if not raw_key:
-        raise RuntimeError(
-            "ODOO_CREDENTIALS_ENCRYPTION_KEY is not configured. "
-            "Set a valid Fernet key in the environment."
-        )
-
-    try:
-        return Fernet(raw_key.encode("utf-8"))
-    except Exception as exc:  # noqa: BLE001 - surface a sanitized configuration error
-        raise RuntimeError(
-            "ODOO_CREDENTIALS_ENCRYPTION_KEY is invalid. "
-            "It must be a URL-safe base64-encoded 32-byte key."
-        ) from exc
+# Backward-compatible alias used by existing tests and internal imports.
+_odoo_fernet = get_fernet_cipher
 
 
 def encrypt_secret(secret: str) -> str:
     """
     Encrypt a secret for storage.
     """
-    if not secret:
-        raise ValueError("Secret cannot be empty.")
-
-    token = _odoo_fernet().encrypt(secret.encode("utf-8"))
-    return token.decode("utf-8")
+    return encrypt_value(secret)
 
 
 def decrypt_secret(encrypted_secret: str) -> str:
     """
     Decrypt a previously encrypted secret.
     """
-    if not encrypted_secret:
-        raise ValueError("Encrypted secret cannot be empty.")
-
-    try:
-        value = _odoo_fernet().decrypt(encrypted_secret.encode("utf-8"))
-    except InvalidToken as exc:
-        raise ValueError("Encrypted credential is invalid or corrupted.") from exc
-
-    return value.decode("utf-8")
+    return decrypt_value(encrypted_secret)
