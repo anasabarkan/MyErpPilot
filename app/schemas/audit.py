@@ -30,6 +30,7 @@ class AuditLogResponse(BaseModel):
     """Public representation of an AuditLog entry."""
     id: UUID
     user_id: Optional[UUID] = None
+    user_display_name: Optional[str] = None
     action: str
     entity_type: str
     entity_id: Optional[str] = None

@@ -6,3 +6,4 @@ from .role_permission import RolePermission
 from .approval import ApprovalRequest
 from .audit_log import AuditLog
 from .data_source import DataSource
+from .registration_request import RegistrationRequest

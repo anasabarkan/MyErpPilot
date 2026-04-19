@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -22,8 +23,24 @@ def client():
     app = FastAPI()
     app.include_router(ai_router, prefix="/api/v1/ai")
 
+    class _FakeSession:
+        def add(self, *_args, **_kwargs):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, *_args, **_kwargs):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
     def override_get_db():
-        yield object()
+        yield _FakeSession()
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
@@ -54,6 +71,10 @@ def test_ai_query_success(monkeypatch, client: TestClient):
                 data=[{"customer_name": "Agrolait", "sales_amount": 2000.0}],
                 summary="Here are your top 5 customers based on sales amount.",
                 suggested_actions=[],
+                meta={
+                    "count": 1,
+                    "generated_at": datetime.now(timezone.utc),
+                },
             )
 
     monkeypatch.setattr(ai_module, "AIOrchestratorService", _FakeOrchestrator)
@@ -133,4 +154,3 @@ def test_ai_query_odoo_failure(monkeypatch, client: TestClient):
 
     assert response.status_code == 502
     assert "Odoo query failed" in body["detail"]
-

@@ -7,7 +7,7 @@ from typing import Optional, Sequence, Tuple
 from uuid import UUID
 
 from sqlalchemy import select, func, desc
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.audit_log import AuditLog
 from app.schemas.audit import AuditLogCreateInternal
@@ -24,7 +24,9 @@ def create_log(db: Session, log_data: AuditLogCreateInternal) -> AuditLog:
 
 def get_log_by_id(db: Session, log_id: UUID) -> Optional[AuditLog]:
     """Retrieve an audit log by its ID."""
-    return db.scalars(select(AuditLog).where(AuditLog.id == log_id)).first()
+    return db.scalars(
+        select(AuditLog).options(joinedload(AuditLog.user)).where(AuditLog.id == log_id)
+    ).first()
 
 
 def list_logs(
@@ -41,7 +43,7 @@ def list_logs(
     limit: int = 100
 ) -> Tuple[Sequence[AuditLog], int]:
     """List audit logs with optional filtering and pagination."""
-    stmt = select(AuditLog)
+    stmt = select(AuditLog).options(joinedload(AuditLog.user))
     count_stmt = select(func.count()).select_from(AuditLog)
 
     filters = []
@@ -82,7 +84,7 @@ def list_logs_by_user(db: Session, user_id: UUID, skip: int = 0, limit: int = 10
             AuditLog.user_id == user_id,
             AuditLog.entity_id == str(user_id)
         )
-    ).order_by(desc(AuditLog.created_at)).offset(skip).limit(limit)
+    ).options(joinedload(AuditLog.user)).order_by(desc(AuditLog.created_at)).offset(skip).limit(limit)
     
     count_stmt = select(func.count()).select_from(AuditLog).where(
         or_(

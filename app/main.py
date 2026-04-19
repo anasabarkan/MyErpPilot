@@ -10,6 +10,7 @@ from app.database.session import Base, engine
 
 # Import models so SQLAlchemy registers them with Base.metadata
 import app.models.user  # noqa: F401 — User
+import app.models.registration_request  # noqa: F401 — RegistrationRequest
 
 
 @asynccontextmanager

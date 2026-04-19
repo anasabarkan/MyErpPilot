@@ -38,5 +38,14 @@ class AuditLog(Base):
 
     user = relationship("User")
 
+    @property
+    def user_display_name(self) -> str:
+        if self.user:
+            if self.user.full_name:
+                return self.user.full_name
+            if self.user.email:
+                return self.user.email
+        return "System"
+
     def __repr__(self) -> str:
         return f"<AuditLog {self.action} on {self.entity_type} ({self.status})>"

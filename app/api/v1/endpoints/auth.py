@@ -1,5 +1,5 @@
-"""
-Auth endpoints: local signup/login, JWT-protected /me, Google OAuth2.
+﻿"""
+Auth endpoints: local registration request/login, JWT-protected /me, Google OAuth2.
 """
 
 from urllib.parse import urlencode
@@ -13,6 +13,7 @@ from app.core.dependencies import get_current_user
 from app.database.session import get_db
 from app.models.user import User
 from app.schemas.auth import CurrentUserResponse, FirstLoginPasswordChange, Token, UserLogin
+from app.schemas.registration_request import SignupRequestResponse
 from app.schemas.user import UserCreate, UserResponse
 from app.services import auth_service
 from app.services.role_service import get_user_permissions_list
@@ -22,15 +23,21 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post(
     "/signup",
-    response_model=UserResponse,
+    response_model=SignupRequestResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Register a new local user",
+    summary="Submit a new local registration request",
 )
 def signup(body: UserCreate, db: Session = Depends(get_db)):
-    user = auth_service.signup(
-        db, email=body.email, password=body.password, full_name=body.full_name
+    request = auth_service.signup(
+        db,
+        email=body.email,
+        password=body.password,
+        full_name=body.full_name,
     )
-    return user
+    return {
+        "message": "Registration request submitted. Please wait for admin approval.",
+        "request": request,
+    }
 
 
 @router.post(
@@ -97,8 +104,26 @@ async def google_callback(
     db: Session = Depends(get_db),
 ):
     try:
-        access_token = await auth_service.google_callback(db, code=code)
-        query = urlencode({"token": access_token})
+        result = await auth_service.google_callback(db, code=code)
+
+        if result.outcome == "token":
+            query = urlencode({"token": result.token})
+        elif result.outcome == "registration_rejected":
+            query = urlencode(
+                {
+                    "status": "rejected",
+                    "message": result.message or "Registration request rejected.",
+                    "rejection_reason": result.rejection_reason or "",
+                }
+            )
+        else:
+            query = urlencode(
+                {
+                    "status": "pending",
+                    "message": result.message or "Registration request is pending approval.",
+                }
+            )
+
     except HTTPException as exc:
         query = urlencode({"error": str(exc.detail)})
 
