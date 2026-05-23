@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -43,8 +44,30 @@ async def lifespan(app: FastAPI):
             print(f"--- [ERROR] Seeding failed: {e} ---")
         finally:
             db.close()
+
+    stock_alert_task = None
+    if settings.STOCK_ALERT_ENABLED:
+        from app.services import stock_alert_service
+
+        db = SessionLocal()
+        try:
+            stock_alert_service.scan_low_stock_alerts(db)
+        except Exception as e:
+            print(f"--- [WARN] Initial stock alert scan failed: {e} ---")
+        finally:
+            db.close()
+
+        stock_alert_task = asyncio.create_task(stock_alert_service.run_stock_alert_loop(SessionLocal))
     
-    yield
+    try:
+        yield
+    finally:
+        if stock_alert_task:
+            stock_alert_task.cancel()
+            try:
+                await stock_alert_task
+            except asyncio.CancelledError:
+                pass
     print("--- [SHUTDOWN] Cleaning up ---")
 
 

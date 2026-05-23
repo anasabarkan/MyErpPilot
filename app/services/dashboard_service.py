@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from sqlalchemy.orm import Session
@@ -18,6 +18,12 @@ from app.security.encryption import decrypt_value
 
 logger = logging.getLogger(__name__)
 _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+_ANALYTICS_RANGES = {
+    "30d": 30,
+    "90d": 90,
+    "365d": 365,
+    "all": None,
+}
 _DIAGNOSTIC_MODELS = (
     "res.partner",
     "product.product",
@@ -560,6 +566,34 @@ def _parse_odoo_date(value: str) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _date_range_domain(field_name: str, range_key: str) -> list[tuple[str, str, str]]:
+    days = _ANALYTICS_RANGES.get(range_key)
+    if days is None:
+        return []
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    return [(field_name, ">=", start.strftime("%Y-%m-%d %H:%M:%S"))]
+
+
+def _analytics_period_key(date_value: Any, range_key: str) -> str | None:
+    if not isinstance(date_value, str):
+        return None
+    parsed = _parse_odoo_date(date_value)
+    if not parsed:
+        return None
+    if range_key == "30d":
+        return parsed.strftime("%Y-%m-%d")
+    return f"{parsed.year:04d}-{parsed.month:02d}"
+
+
+def _ranked_value_points(values: dict[str, float], *, limit: int = 8) -> list[dict[str, str | float]]:
+    ranked = sorted(values.items(), key=lambda item: item[1], reverse=True)[:limit]
+    return [{"name": name, "value": round(value, 2)} for name, value in ranked if value > 0]
+
+
+def _status_value_points(values: dict[str, float]) -> list[dict[str, str | float]]:
+    return [{"name": name.replace("_", " ").title(), "value": value} for name, value in sorted(values.items())]
 
 
 def _extract_group_month(row: dict[str, Any]) -> tuple[int, int] | None:
@@ -1568,6 +1602,383 @@ def get_dashboard_summary(db: Session) -> dict[str, Any]:
         },
     )
     return summary
+
+
+def _build_product_category_lookup(
+    *,
+    client: OdooJsonRpcClient,
+    user_id: int,
+    model_exists_fn: Callable[[str], bool],
+    product_ids: set[int],
+    warnings: list[str],
+) -> dict[int, str]:
+    if not product_ids or not model_exists_fn("product.product"):
+        return {}
+
+    product_rows, product_error = safe_search_read(
+        "product.product",
+        [("id", "in", sorted(product_ids))],
+        ["id", "product_tmpl_id"],
+        "analytics.product_category.product_lookup",
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists_fn,
+        limit=max(len(product_ids), 1),
+    )
+    if product_error:
+        _append_warning(warnings, "Product category breakdown is temporarily unavailable.")
+        return {}
+
+    template_by_product: dict[int, int] = {}
+    template_ids: set[int] = set()
+    for row in product_rows:
+        product_id = row.get("id")
+        template_id = _extract_many2one_id(row.get("product_tmpl_id"))
+        if isinstance(product_id, int) and template_id is not None:
+            template_by_product[product_id] = template_id
+            template_ids.add(template_id)
+
+    if not template_ids or not model_exists_fn("product.template"):
+        return {}
+
+    template_rows, template_error = safe_search_read(
+        "product.template",
+        [("id", "in", sorted(template_ids))],
+        ["id", "categ_id"],
+        "analytics.product_category.template_lookup",
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists_fn,
+        limit=max(len(template_ids), 1),
+    )
+    if template_error:
+        _append_warning(warnings, "Product category breakdown is temporarily unavailable.")
+        return {}
+
+    category_by_template: dict[int, str] = {}
+    for row in template_rows:
+        template_id = row.get("id")
+        if isinstance(template_id, int):
+            category_by_template[template_id] = _extract_many2one_name(row.get("categ_id"), default="Uncategorized")
+
+    return {
+        product_id: category_by_template.get(template_id, "Uncategorized")
+        for product_id, template_id in template_by_product.items()
+    }
+
+
+def _compute_stock_availability(
+    *,
+    client: OdooJsonRpcClient,
+    user_id: int,
+    model_exists_fn: Callable[[str], bool],
+    warnings: list[str],
+    limit: int = 10,
+) -> list[dict[str, str | float]]:
+    if not model_exists_fn("stock.quant"):
+        _append_warning(warnings, PRODUCTS_MODULE_WARNING)
+        return []
+
+    rows, error = safe_search_read(
+        "stock.quant",
+        [("location_id.usage", "=", "internal"), ("quantity", "!=", 0)],
+        ["product_id", "location_id", "quantity", "reserved_quantity"],
+        "analytics.stock_availability",
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists_fn,
+        limit=5000,
+        order="quantity desc",
+    )
+    if error:
+        _append_warning(warnings, "Stock availability is temporarily unavailable.")
+        return []
+
+    availability: dict[tuple[str, str], dict[str, str | float]] = {}
+    for row in rows:
+        product = _extract_many2one_name(row.get("product_id"), default="Unknown Product")
+        location = _extract_many2one_name(row.get("location_id"), default="Unknown")
+        key = (product, location)
+        existing = availability.setdefault(
+            key,
+            {
+                "product": product,
+                "location": location,
+                "quantity": 0.0,
+                "reserved_quantity": 0.0,
+                "available_quantity": 0.0,
+            },
+        )
+        quantity = _to_float(row.get("quantity"))
+        reserved = _to_float(row.get("reserved_quantity"))
+        existing["quantity"] = _to_float(existing.get("quantity")) + quantity
+        existing["reserved_quantity"] = _to_float(existing.get("reserved_quantity")) + reserved
+        existing["available_quantity"] = _to_float(existing.get("available_quantity")) + quantity - reserved
+
+    ranked = sorted(
+        availability.values(),
+        key=lambda item: _to_float(item.get("available_quantity")),
+        reverse=True,
+    )
+    return [
+        {
+            "product": str(item["product"]),
+            "location": str(item["location"]),
+            "quantity": round(_to_float(item.get("quantity")), 2),
+            "reserved_quantity": round(_to_float(item.get("reserved_quantity")), 2),
+            "available_quantity": round(_to_float(item.get("available_quantity")), 2),
+        }
+        for item in ranked[:limit]
+    ]
+
+
+def get_dashboard_analytics(db: Session, range_key: str) -> dict[str, Any]:
+    if range_key not in _ANALYTICS_RANGES:
+        raise ValueError("Unsupported analytics range.")
+
+    active_source, client, user_id, resolver, available_models, warnings = _build_runtime_context(db)
+
+    logger.info(
+        "[dashboard][analytics] fetch started",
+        extra={
+            "source_id": str(active_source.id),
+            "source_name": active_source.name,
+            "database_name": active_source.database_name,
+            "range": range_key,
+            "available_models_count": len(available_models),
+        },
+    )
+
+    def model_exists(model_name: str) -> bool:
+        return resolver.model_exists(model_name)
+
+    sales_rows: list[dict[str, Any]] = []
+    if model_exists("sale.order"):
+        sales_rows, sales_error = safe_search_read(
+            "sale.order",
+            [("state", "in", ["sale", "done"]), *_date_range_domain("date_order", range_key)],
+            ["id", "name", "partner_id", "state", "amount_total", "date_order"],
+            "analytics.sales_orders",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists,
+            limit=10000,
+            order="date_order asc",
+        )
+        if sales_error:
+            _append_warning(warnings, "Sales analytics are temporarily unavailable.")
+    else:
+        _append_warning(warnings, SALES_MODULE_WARNING)
+
+    invoice_rows: list[dict[str, Any]] = []
+    if model_exists("account.move"):
+        invoice_rows, invoice_error = safe_search_read(
+            "account.move",
+            [
+                ("move_type", "in", ["out_invoice", "out_refund"]),
+                ("state", "=", "posted"),
+                *_date_range_domain("invoice_date", range_key),
+            ],
+            ["id", "partner_id", "payment_state", "invoice_date", "amount_total", "amount_residual"],
+            "analytics.invoices",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists,
+            limit=10000,
+            order="invoice_date asc",
+        )
+        if invoice_error:
+            _append_warning(warnings, "Invoice analytics are temporarily unavailable.")
+    else:
+        _append_warning(warnings, INVOICE_MODULE_WARNING)
+
+    purchase_rows: list[dict[str, Any]] = []
+    if model_exists("purchase.order"):
+        purchase_rows, purchase_error = safe_search_read(
+            "purchase.order",
+            [("state", "in", ["purchase", "done"]), *_date_range_domain("date_order", range_key)],
+            ["id", "partner_id", "state", "amount_total", "date_order"],
+            "analytics.purchase_orders",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists,
+            limit=10000,
+            order="date_order asc",
+        )
+        if purchase_error:
+            _append_warning(warnings, "Purchase analytics are temporarily unavailable.")
+    else:
+        _append_warning(warnings, "Purchase data unavailable because the Purchase module is not installed.")
+
+    sale_line_rows: list[dict[str, Any]] = []
+    if model_exists("sale.order.line"):
+        sale_line_rows, sale_line_error = safe_search_read(
+            "sale.order.line",
+            [
+                ("order_id.state", "in", ["sale", "done"]),
+                ("display_type", "=", False),
+                *_date_range_domain("order_id.date_order", range_key),
+            ],
+            ["product_id", "price_total"],
+            "analytics.sale_order_lines",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists,
+            limit=10000,
+            order="price_total desc",
+        )
+        if sale_line_error:
+            _append_warning(warnings, "Product revenue analytics are temporarily unavailable.")
+
+    revenue = round(sum(_to_float(row.get("amount_total")) for row in sales_rows), 2)
+    purchase_spend_total = round(sum(_to_float(row.get("amount_total")) for row in purchase_rows), 2)
+    unpaid_amount = round(sum(_to_float(row.get("amount_residual")) for row in invoice_rows), 2)
+    average_order_value = round(revenue / len(sales_rows), 2) if sales_rows else 0.0
+
+    customers, customer_warnings = _compute_customers_metric(
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists,
+    )
+    for warning in customer_warnings:
+        _append_warning(warnings, warning)
+
+    products, product_warnings = _compute_products_metric(
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists,
+    )
+    for warning in product_warnings:
+        _append_warning(warnings, warning)
+
+    trend_by_period: dict[str, dict[str, float]] = {}
+    for row in sales_rows:
+        period = _analytics_period_key(row.get("date_order"), range_key)
+        if not period:
+            continue
+        trend_by_period.setdefault(period, {"revenue": 0.0, "invoices": 0.0, "purchases": 0.0})
+        trend_by_period[period]["revenue"] += _to_float(row.get("amount_total"))
+    for row in invoice_rows:
+        period = _analytics_period_key(row.get("invoice_date"), range_key)
+        if not period:
+            continue
+        trend_by_period.setdefault(period, {"revenue": 0.0, "invoices": 0.0, "purchases": 0.0})
+        trend_by_period[period]["invoices"] += _to_float(row.get("amount_total"))
+    for row in purchase_rows:
+        period = _analytics_period_key(row.get("date_order"), range_key)
+        if not period:
+            continue
+        trend_by_period.setdefault(period, {"revenue": 0.0, "invoices": 0.0, "purchases": 0.0})
+        trend_by_period[period]["purchases"] += _to_float(row.get("amount_total"))
+
+    top_customers: dict[str, float] = {}
+    sales_status: dict[str, float] = {}
+    for row in sales_rows:
+        customer_name = _extract_many2one_name(row.get("partner_id"), default="Unknown Customer")
+        top_customers[customer_name] = top_customers.get(customer_name, 0.0) + _to_float(row.get("amount_total"))
+        state = row.get("state") if isinstance(row.get("state"), str) else "unknown"
+        sales_status[state] = sales_status.get(state, 0.0) + 1
+
+    invoice_status: dict[str, float] = {}
+    for row in invoice_rows:
+        state = row.get("payment_state") if isinstance(row.get("payment_state"), str) else "unknown"
+        invoice_status[state] = invoice_status.get(state, 0.0) + 1
+
+    purchase_status: dict[str, float] = {}
+    purchase_spend_by_supplier: dict[str, float] = {}
+    for row in purchase_rows:
+        state = row.get("state") if isinstance(row.get("state"), str) else "unknown"
+        purchase_status[state] = purchase_status.get(state, 0.0) + 1
+        supplier_name = _extract_many2one_name(row.get("partner_id"), default="Unknown Supplier")
+        purchase_spend_by_supplier[supplier_name] = purchase_spend_by_supplier.get(supplier_name, 0.0) + _to_float(row.get("amount_total"))
+
+    top_products: dict[str, float] = {}
+    product_revenue_by_id: dict[int, float] = {}
+    product_ids: set[int] = set()
+    for row in sale_line_rows:
+        product_ref = row.get("product_id")
+        product_id = _extract_many2one_id(product_ref)
+        product_name = _extract_many2one_name(product_ref, default="Unknown Product")
+        line_total = _to_float(row.get("price_total"))
+        top_products[product_name] = top_products.get(product_name, 0.0) + line_total
+        if product_id is not None:
+            product_ids.add(product_id)
+            product_revenue_by_id[product_id] = product_revenue_by_id.get(product_id, 0.0) + line_total
+
+    category_lookup = _build_product_category_lookup(
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists,
+        product_ids=product_ids,
+        warnings=warnings,
+    )
+    product_categories: dict[str, float] = {}
+    for product_id, product_revenue in product_revenue_by_id.items():
+        category_name = category_lookup.get(product_id, "Uncategorized")
+        product_categories[category_name] = product_categories.get(category_name, 0.0) + product_revenue
+
+    low_stock_items = get_low_stock_items(
+        client=client,
+        user_id=user_id,
+        model_exists_fn=model_exists,
+        warnings=warnings,
+        limit=10,
+    )
+
+    analytics = {
+        "status": "connected",
+        "source": "odoo",
+        "database": active_source.database_name,
+        "range": range_key,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "metrics": {
+            "revenue": revenue,
+            "sales_orders": len(sales_rows),
+            "invoices": len(invoice_rows),
+            "unpaid_amount": unpaid_amount,
+            "purchase_spend": purchase_spend_total,
+            "average_order_value": average_order_value,
+            "customers": customers,
+            "products": products,
+        },
+        "charts": {
+            "revenue_trend": [
+                {
+                    "period": period,
+                    "revenue": round(values["revenue"], 2),
+                    "invoices": round(values["invoices"], 2),
+                    "purchases": round(values["purchases"], 2),
+                }
+                for period, values in sorted(trend_by_period.items())
+            ],
+            "top_customers": _ranked_value_points(top_customers, limit=8),
+            "top_products": _ranked_value_points(top_products, limit=8),
+            "product_categories": _ranked_value_points(product_categories, limit=8),
+            "invoice_status": _status_value_points(invoice_status),
+            "sales_order_status": _status_value_points(sales_status),
+            "purchase_order_status": _status_value_points(purchase_status),
+            "purchase_spend": _ranked_value_points(purchase_spend_by_supplier, limit=8),
+            "stock_availability": _compute_stock_availability(
+                client=client,
+                user_id=user_id,
+                model_exists_fn=model_exists,
+                warnings=warnings,
+            ),
+            "low_stock_items": _format_low_stock_chart_items(low_stock_items),
+        },
+        "warnings": warnings,
+    }
+
+    logger.info(
+        "[dashboard][analytics] fetch completed",
+        extra={
+            "source_id": str(active_source.id),
+            "range": range_key,
+            "warnings_count": len(warnings),
+            "chart_sizes": {key: len(value) for key, value in analytics["charts"].items()},
+        },
+    )
+    return analytics
 
 
 def _build_metric_test_payload(

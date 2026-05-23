@@ -25,6 +25,12 @@ class AIQueryRequest(BaseModel):
 class AIQueryMeta(BaseModel):
     count: int = 0
     generated_at: datetime
+    provider: str | None = None
+    model: str | None = None
+    fallback_used: bool | None = None
+    generated_sql: str | None = None
+    execution_ms: int | None = None
+    row_count: int | None = None
 
 
 class AIQueryResponse(BaseModel):

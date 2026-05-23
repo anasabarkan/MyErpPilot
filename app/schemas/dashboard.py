@@ -82,6 +82,63 @@ class DashboardSummaryResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class DashboardAnalyticsMetrics(BaseModel):
+    revenue: float = 0.0
+    sales_orders: int = 0
+    invoices: int = 0
+    unpaid_amount: float = 0.0
+    purchase_spend: float = 0.0
+    average_order_value: float = 0.0
+    customers: int = 0
+    products: int = 0
+
+
+class DashboardAnalyticsTrendPoint(BaseModel):
+    period: str
+    revenue: float = 0.0
+    invoices: float = 0.0
+    purchases: float = 0.0
+
+
+class DashboardAnalyticsValuePoint(BaseModel):
+    name: str
+    value: float = 0.0
+    short_name: str | None = None
+    full_name: str | None = None
+
+
+class DashboardAnalyticsInventoryPoint(BaseModel):
+    product: str
+    location: str = "Unknown"
+    quantity: float = 0.0
+    reserved_quantity: float = 0.0
+    available_quantity: float = 0.0
+
+
+class DashboardAnalyticsCharts(BaseModel):
+    revenue_trend: list[DashboardAnalyticsTrendPoint] = Field(default_factory=list)
+    top_customers: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    top_products: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    product_categories: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    invoice_status: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    sales_order_status: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    purchase_order_status: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    purchase_spend: list[DashboardAnalyticsValuePoint] = Field(default_factory=list)
+    stock_availability: list[DashboardAnalyticsInventoryPoint] = Field(default_factory=list)
+    low_stock_items: list[DashboardLowStockItem] = Field(default_factory=list)
+
+
+class DashboardAnalyticsResponse(BaseModel):
+    source: str = "odoo"
+    status: str = "connected"
+    database: str
+    range: str
+    generated_at: str
+    metrics: DashboardAnalyticsMetrics
+    charts: DashboardAnalyticsCharts
+    warnings: list[str] = Field(default_factory=list)
+
+
 class DashboardDiagnosticsActiveSource(BaseModel):
     name: str
     url: str

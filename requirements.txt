@@ -1,5 +1,6 @@
 # ── Core Framework ───────────────────────────────
-fastapi
+fastapi==0.115.6
+starlette==0.41.3
 uvicorn[standard]
 sqlalchemy
 psycopg2-binary
@@ -21,6 +22,10 @@ langchain-openai
 langchain-community
 langgraph
 langgraph-sdk
+openai
+google-genai
+sqlglot
 
 # ── Utilities ────────────────────────────────────
 python-dotenv
+pytest

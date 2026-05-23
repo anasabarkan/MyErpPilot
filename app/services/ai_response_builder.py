@@ -19,8 +19,16 @@ def build_ai_response(
     data: list[dict[str, Any]] | dict[str, Any] | None,
     suggested_actions: list[str] | None = None,
     source: str = "odoo",
+    meta_overrides: dict[str, Any] | None = None,
 ) -> AIQueryResponse:
     normalized_data = _normalize_data_payload(data)
+    meta_payload = {
+        "count": _compute_result_count(normalized_data),
+        "generated_at": datetime.now(timezone.utc),
+    }
+    if meta_overrides:
+        meta_payload.update(meta_overrides)
+
     return AIQueryResponse(
         question=question,
         intent=intent,
@@ -29,10 +37,7 @@ def build_ai_response(
         summary=summary,
         data=normalized_data,
         suggested_actions=suggested_actions or [],
-        meta=AIQueryMeta(
-            count=_compute_result_count(normalized_data),
-            generated_at=datetime.now(timezone.utc),
-        ),
+        meta=AIQueryMeta(**meta_payload),
     )
 
 

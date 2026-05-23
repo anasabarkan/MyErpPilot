@@ -111,6 +111,81 @@ def test_dashboard_summary_connection_error(monkeypatch, client: TestClient):
     assert response.status_code == 502
 
 
+def test_dashboard_analytics_success(monkeypatch, client: TestClient):
+    def fake_analytics(_db, range_key: str):
+        assert range_key == "30d"
+        return {
+            "source": "odoo",
+            "status": "connected",
+            "database": "odoo",
+            "range": range_key,
+            "generated_at": "2026-05-23T12:00:00+00:00",
+            "metrics": {
+                "revenue": 12800.75,
+                "sales_orders": 14,
+                "invoices": 9,
+                "unpaid_amount": 2500.0,
+                "purchase_spend": 4100.0,
+                "average_order_value": 914.34,
+                "customers": 120,
+                "products": 58,
+            },
+            "charts": {
+                "revenue_trend": [{"period": "2026-05-01", "revenue": 5000, "invoices": 4500, "purchases": 1200}],
+                "top_customers": [{"name": "Agrolait", "value": 5200}],
+                "top_products": [{"name": "Laptop", "value": 3100}],
+                "product_categories": [{"name": "Laptops", "value": 3100}],
+                "invoice_status": [{"name": "Paid", "value": 6}],
+                "sales_order_status": [{"name": "Sale", "value": 12}],
+                "purchase_order_status": [{"name": "Purchase", "value": 4}],
+                "purchase_spend": [{"name": "Supplier A", "value": 4100}],
+                "stock_availability": [
+                    {
+                        "product": "Laptop",
+                        "location": "WH/Stock",
+                        "quantity": 10,
+                        "reserved_quantity": 2,
+                        "available_quantity": 8,
+                    }
+                ],
+                "low_stock_items": [],
+            },
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(dashboard_module.dashboard_service, "get_dashboard_analytics", fake_analytics)
+
+    response = client.get("/api/v1/dashboard/analytics", params={"range": "30d"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["range"] == "30d"
+    assert body["metrics"]["revenue"] == 12800.75
+    assert body["charts"]["top_customers"][0]["name"] == "Agrolait"
+
+
+def test_dashboard_analytics_invalid_range_returns_422(client: TestClient):
+    response = client.get("/api/v1/dashboard/analytics", params={"range": "7d"})
+
+    assert response.status_code == 422
+
+
+def test_dashboard_analytics_missing_active_source(monkeypatch, client: TestClient):
+    monkeypatch.setattr(
+        dashboard_module.dashboard_service,
+        "get_dashboard_analytics",
+        lambda _db, _range: (_ for _ in ()).throw(
+            DashboardSourceNotConfiguredError("No active Odoo source configured.")
+        ),
+    )
+
+    response = client.get("/api/v1/dashboard/analytics")
+    body = response.json()
+
+    assert response.status_code == 404
+    assert "No active Odoo source configured" in body["detail"]
+
+
 def test_dashboard_diagnostics_success(monkeypatch, client: TestClient):
     monkeypatch.setattr(
         dashboard_module.dashboard_service,

@@ -13,11 +13,14 @@ from app.integrations.odoo import OdooRequestError
 from app.orchestrator.intent_classifier import AIIntentClassifier
 from app.schemas.ai import AIQueryIntent, AIQueryResponse
 from app.services.ai_response_builder import build_ai_response
+from app.services.llm_provider_service import any_provider_configured
 from app.services.odoo_query_service import (
     OdooQueryExecutionError,
     OdooQueryService,
     OdooRuntimeContext,
 )
+from app.services.text_to_sql_service import TextToSQLCannotAnswerError, TextToSQLService
+from app.core.config import settings
 
 
 class AIUnsupportedQuestionError(RuntimeError):
@@ -67,11 +70,18 @@ class AIOrchestratorService:
         self.db = db
         self.intent_classifier = AIIntentClassifier()
         self.odoo_query_service = OdooQueryService(db)
+        self.text_to_sql_service = TextToSQLService(db)
 
     def query(self, *, question: str, user_id: UUID) -> AIQueryResponse:
         normalized_question = question.strip()
         if not normalized_question:
             raise AIUnsupportedQuestionError("Question is empty.")
+
+        if settings.TEXT2SQL_ENABLED and any_provider_configured():
+            try:
+                return self.text_to_sql_service.query(question=normalized_question, user_id=user_id)
+            except TextToSQLCannotAnswerError as exc:
+                raise AIUnsupportedQuestionError(str(exc)) from exc
 
         runtime = self.odoo_query_service.build_runtime_context()
         resolution = self.intent_classifier.classify(normalized_question)

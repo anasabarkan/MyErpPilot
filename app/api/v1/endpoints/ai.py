@@ -81,7 +81,7 @@ def query_ai(
             user_agent=user_agent,
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
     except (OdooQueryCredentialError, OdooAuthenticationError) as exc:
@@ -134,6 +134,12 @@ def query_ai(
             "question": result.question,
             "intent": result.intent.value,
             "handler": result.handler,
+            "provider": result.meta.provider,
+            "model": result.meta.model,
+            "fallback_used": result.meta.fallback_used,
+            "generated_sql": result.meta.generated_sql,
+            "row_count": result.meta.row_count,
+            "execution_ms": result.meta.execution_ms,
         },
         ip_address=ip_address,
         user_agent=user_agent,

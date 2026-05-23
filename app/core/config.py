@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_TEXT2SQL_MODEL: str = "gpt-5.4-mini"
+    GEMINI_API_KEY: str = ""
+    GEMINI_TEXT2SQL_MODEL: str = "gemini-2.5-flash"
+    TEXT2SQL_ENABLED: bool = True
+    TEXT2SQL_MAX_ROWS: int = 100
+    TEXT2SQL_TIMEOUT_SECONDS: int = 5
 
     # JWT + encryption
     SECRET_KEY: str = "change-me-in-production"
@@ -50,9 +56,21 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = ""
     AUTO_GENERATE_FERNET_KEY: bool = False
     ODOO_CREDENTIALS_ENCRYPTION_KEY: str = ""  # Backward compatibility fallback
+    ODOO_URL: str = "http://localhost:8069"
     ODOO_DB_NAME: str = "odoo"
     ODOO_DB_USER: str = "odoo"
     ODOO_DB_PASSWORD: str = "odoo"
+    ODOO_SQL_HOST: str = "odoo-db"
+    ODOO_SQL_PORT: int = 5432
+    ODOO_SQL_DATABASE: str = "odoo"
+    ODOO_SQL_USER: str = "odoo"
+    ODOO_SQL_PASSWORD: str = "odoo"
+
+    # Automatic stock alerts
+    STOCK_ALERT_ENABLED: bool = True
+    STOCK_ALERT_SCAN_INTERVAL_SECONDS: int = 3600
+    STOCK_ALERT_FORECAST_DAYS: int = 7
+    STOCK_ALERT_SALES_LOOKBACK_DAYS: int = 30
 
     # Google OAuth2
     GOOGLE_CLIENT_ID: str = ""
@@ -71,6 +89,13 @@ class Settings(BaseSettings):
         return (
             f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
+    @property
+    def odoo_sql_database_url(self) -> str:
+        return (
+            f"postgresql://{self.ODOO_SQL_USER}:{self.ODOO_SQL_PASSWORD}"
+            f"@{self.ODOO_SQL_HOST}:{self.ODOO_SQL_PORT}/{self.ODOO_SQL_DATABASE}"
         )
 
     @property

@@ -3,7 +3,7 @@ Dashboard endpoints powered by active Odoo source data.
 """
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from app.core.dependencies import get_current_user, require_permission
 from app.database.session import get_db
 from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
 from app.models.user import User
-from app.schemas.dashboard import DashboardDiagnosticsResponse, DashboardSummaryResponse
+from app.schemas.dashboard import DashboardAnalyticsResponse, DashboardDiagnosticsResponse, DashboardSummaryResponse
 from app.services import dashboard_service
 from app.services.dashboard_service import DashboardCredentialError, DashboardSourceNotConfiguredError
 
@@ -68,6 +68,51 @@ def get_dashboard_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error while fetching dashboard summary.",
+        ) from exc
+
+
+@router.get(
+    "/analytics",
+    response_model=DashboardAnalyticsResponse,
+    dependencies=[Depends(require_permission("query_data"))],
+)
+def get_dashboard_analytics(
+    range: Literal["30d", "90d", "365d", "all"] = "90d",
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    try:
+        return dashboard_service.get_dashboard_analytics(db, range)
+    except DashboardSourceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except DashboardCredentialError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except OdooAuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Odoo authentication failed for the active source.",
+        ) from exc
+    except OdooConnectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to connect to Odoo using the active source.",
+        ) from exc
+    except OdooRequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Odoo request failed while building analytics: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - keep endpoint errors controlled and JSON-safe
+        logger.exception("dashboard_analytics_unhandled_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error while fetching analytics.",
         ) from exc
 
 

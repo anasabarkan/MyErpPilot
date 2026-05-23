@@ -268,6 +268,43 @@ def test_get_dashboard_summary_success(monkeypatch):
     assert summary["warnings"] == []
 
 
+def test_get_dashboard_analytics_success(monkeypatch):
+    _patch_dashboard_context(monkeypatch, FakeDashboardClient())
+    analytics = dashboard_service.get_dashboard_analytics(db=object(), range_key="all")  # type: ignore[arg-type]
+
+    assert analytics["source"] == "odoo"
+    assert analytics["status"] == "connected"
+    assert analytics["database"] == "odoo"
+    assert analytics["range"] == "all"
+    assert analytics["metrics"]["revenue"] == 7600.5
+    assert analytics["metrics"]["sales_orders"] == 2
+    assert analytics["metrics"]["average_order_value"] == 3800.25
+    assert analytics["metrics"]["customers"] == 120
+    assert analytics["metrics"]["products"] == 58
+    assert analytics["charts"]["revenue_trend"]
+    assert analytics["charts"]["top_customers"][0]["name"] == "Azure Interior"
+    assert analytics["charts"]["top_products"][0]["name"] == "Product A"
+    assert analytics["charts"]["product_categories"][0]["name"] == "Uncategorized"
+    assert analytics["charts"]["stock_availability"][0]["product"] == "Office Chair"
+
+
+def test_get_dashboard_analytics_partial_warning(monkeypatch):
+    class PurchaseMissingClient(FakeDashboardClient):
+        def list_models(self, user_id: int) -> list[dict[str, str]]:
+            return [item for item in super().list_models(user_id) if item["model"] != "purchase.order"]
+
+        def search_count(self, *, user_id: int, model: str, domain: list[object] | None = None) -> int:
+            if model == "purchase.order":
+                raise OdooRequestError("Odoo request failed: Object purchase.order doesn't exist")
+            return super().search_count(user_id=user_id, model=model, domain=domain)
+
+    _patch_dashboard_context(monkeypatch, PurchaseMissingClient())
+    analytics = dashboard_service.get_dashboard_analytics(db=object(), range_key="90d")  # type: ignore[arg-type]
+
+    assert analytics["metrics"]["purchase_spend"] == 0
+    assert any("Purchase data unavailable" in warning for warning in analytics["warnings"])
+
+
 def test_get_dashboard_summary_without_active_source(monkeypatch):
     monkeypatch.setattr(dashboard_service.data_source_repo, "get_active_data_source", lambda _db: None)
     with pytest.raises(dashboard_service.DashboardSourceNotConfiguredError):
