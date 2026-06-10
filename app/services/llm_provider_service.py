@@ -35,7 +35,6 @@ class LLMProvider(Protocol):
 
 TEXT_TO_SQL_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "additionalProperties": False,
     "required": ["can_answer", "sql", "summary", "assumptions"],
     "properties": {
         "can_answer": {"type": "boolean"},

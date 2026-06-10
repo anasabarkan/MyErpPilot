@@ -29,7 +29,7 @@ _INVALID_FERNET_KEY_MESSAGE = (
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # PostgreSQL
     POSTGRES_USER: str = "postgres"
