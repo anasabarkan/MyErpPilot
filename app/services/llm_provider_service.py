@@ -86,6 +86,47 @@ class OpenAITextToSQLProvider:
         payload = _parse_payload(content)
         return _draft_from_payload(payload, provider=self.provider_name, model=self.model)
 
+    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        if not settings.OPENAI_API_KEY:
+            raise LLMProviderError("OpenAI API key is not configured.")
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=settings.TEXT2SQL_TIMEOUT_SECONDS)
+            response = client.responses.create(
+                model=self.model,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "general_response",
+                        "schema": {
+                            "type": "object",
+                            "required": ["summary", "suggested_actions"],
+                            "properties": {
+                                "summary": {"type": "string"},
+                                "suggested_actions": {"type": "array", "items": {"type": "string"}},
+                            },
+                        },
+                        "strict": True,
+                    }
+                },
+            )
+            content = getattr(response, "output_text", None)
+            if not content:
+                raise LLMProviderError("OpenAI returned no structured content.")
+            payload = json.loads(content)
+            if not isinstance(payload, dict):
+                raise LLMProviderError("Provider JSON root must be an object.")
+            return payload
+        except Exception as exc:
+            raise LLMProviderError("OpenAI general generation failed.") from exc
+
+
+
 
 class GeminiTextToSQLProvider:
     provider_name = "gemini"
@@ -122,6 +163,41 @@ class GeminiTextToSQLProvider:
         payload = _parse_payload(content)
         return _draft_from_payload(payload, provider=self.provider_name, model=self.model)
 
+    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        if not settings.GEMINI_API_KEY:
+            raise LLMProviderError("Gemini API key is not configured.")
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            response = client.models.generate_content(
+                model=self.model,
+                contents=f"{system_prompt}\n\n{user_prompt}",
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "object",
+                        "required": ["summary", "suggested_actions"],
+                        "properties": {
+                            "summary": {"type": "string"},
+                            "suggested_actions": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                    temperature=0.7,
+                ),
+            )
+            if not response.text:
+                raise LLMProviderError("Gemini returned no structured content.")
+            payload = json.loads(response.text)
+            if not isinstance(payload, dict):
+                raise LLMProviderError("Provider JSON root must be an object.")
+            return payload
+        except Exception as exc:
+            raise LLMProviderError("Gemini general generation failed.") from exc
+
+
+
 
 class TextToSQLProviderChain:
     def __init__(self, providers: list[LLMProvider] | None = None) -> None:
@@ -135,6 +211,27 @@ class TextToSQLProviderChain:
             except LLMProviderError as exc:
                 failures.append(f"{provider.provider_name}: {exc}")
         raise LLMProviderError("All Text-to-SQL providers failed.")
+
+    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        failures: list[str] = []
+        for provider in self.providers:
+            try:
+                if provider.provider_name == "openai" and not settings.OPENAI_API_KEY:
+                    continue
+                if provider.provider_name == "gemini" and not settings.GEMINI_API_KEY:
+                    continue
+                return provider.generate_general(system_prompt=system_prompt, user_prompt=user_prompt)
+            except Exception as exc:
+                failures.append(f"{provider.provider_name}: {exc}")
+        
+        return {
+            "summary": "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?",
+            "suggested_actions": [
+                "Show top products",
+                "List recent orders",
+                "Show sales summary"
+            ]
+        }
 
 
 def any_provider_configured() -> bool:

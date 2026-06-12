@@ -98,6 +98,7 @@ def query_ai(
             detail=str(exc),
         ) from exc
     except (OdooQueryExecutionError, OdooRequestError, OdooConnectionError) as exc:
+        logger.exception("Odoo query error occurred:")
         _log_ai_failure(
             db=db,
             current_user=current_user,

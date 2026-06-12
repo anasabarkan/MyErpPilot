@@ -16,6 +16,7 @@ class AIQueryIntent(str, Enum):
     dashboard_query = "dashboard_query"
     summary_query = "summary_query"
     action_proposal = "action_proposal"
+    general_query = "general_query"
 
 
 class AIQueryRequest(BaseModel):

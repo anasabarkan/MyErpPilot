@@ -12,6 +12,12 @@ from app.services.ai_orchestrator_service import (
 from app.services.odoo_query_service import OdooQueryExecutionError
 
 
+@pytest.fixture(autouse=True)
+def disable_text2sql(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "TEXT2SQL_ENABLED", False)
+
+
 @dataclass
 class _FakeRuntime:
     source_name: str = "odoo"
@@ -92,4 +98,67 @@ def test_orchestrator_surfaces_odoo_query_error():
 
     with pytest.raises(OdooQueryExecutionError):
         service.query(question="sales summary", user_id=uuid4())
+
+
+def test_orchestrator_routes_general_query_when_handler_not_found(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "TEXT2SQL_ENABLED", True)
+
+    service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
+    service.odoo_query_service = _FakeOdooQueryService()  # type: ignore[assignment]
+    
+    class _FakeTextToSQLService:
+        def __init__(self) -> None:
+            class _FakeProviderChain:
+                def generate_general(self, *, system_prompt: str, user_prompt: str):
+                    return {
+                        "summary": "Hello there! I am MyERPPilot AI.",
+                        "suggested_actions": ["Show top products"]
+                    }
+            self.provider_chain = _FakeProviderChain()
+            
+        def query(self, *, question: str, user_id: uuid4):
+            from app.services.text_to_sql_service import TextToSQLCannotAnswerError
+            raise TextToSQLCannotAnswerError("Cannot answer this question")
+            
+    service.text_to_sql_service = _FakeTextToSQLService()  # type: ignore[assignment]
+    
+    result = service.query(question="HEY", user_id=uuid4())
+    
+    assert result.intent == AIQueryIntent.general_query
+    assert result.handler == "general_knowledge"
+    assert result.summary == "Hello there! I am MyERPPilot AI."
+    assert result.suggested_actions == ["Show top products"]
+    assert result.summary == "Hello there! I am MyERPPilot AI."
+    assert result.suggested_actions == ["Show top products"]
+
+
+def test_orchestrator_fallback_to_general_query_on_cannot_answer_error(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "TEXT2SQL_ENABLED", True)
+    
+    service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
+    service.odoo_query_service = _FakeOdooQueryService()  # type: ignore[assignment]
+    
+    class _FakeTextToSQLService:
+        def __init__(self) -> None:
+            class _FakeProviderChain:
+                def generate_general(self, *, system_prompt: str, user_prompt: str):
+                    return {
+                        "summary": "This is a general reply.",
+                        "suggested_actions": ["Show top products"]
+                    }
+            self.provider_chain = _FakeProviderChain()
+            
+        def query(self, *, question: str, user_id: uuid4):
+            from app.services.text_to_sql_service import TextToSQLCannotAnswerError
+            raise TextToSQLCannotAnswerError("Cannot answer this question")
+            
+    service.text_to_sql_service = _FakeTextToSQLService()  # type: ignore[assignment]
+    
+    result = service.query(question="explain what ERP is", user_id=uuid4())
+    
+    assert result.intent == AIQueryIntent.general_query
+    assert result.handler == "general_knowledge"
+    assert result.summary == "This is a general reply."
 

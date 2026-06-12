@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.integrations.odoo import OdooRequestError
+from app.integrations.odoo import OdooRequestError, OdooConnectionError, OdooAuthenticationError
 from app.orchestrator.intent_classifier import AIIntentClassifier
 from app.schemas.ai import AIQueryIntent, AIQueryResponse
 from app.services.ai_response_builder import build_ai_response
@@ -18,6 +18,7 @@ from app.services.odoo_query_service import (
     OdooQueryExecutionError,
     OdooQueryService,
     OdooRuntimeContext,
+    OdooQuerySourceNotConfiguredError,
 )
 from app.services.text_to_sql_service import TextToSQLCannotAnswerError, TextToSQLService
 from app.core.config import settings
@@ -80,8 +81,22 @@ class AIOrchestratorService:
         if settings.TEXT2SQL_ENABLED and any_provider_configured():
             try:
                 return self.text_to_sql_service.query(question=normalized_question, user_id=user_id)
-            except TextToSQLCannotAnswerError as exc:
-                raise AIUnsupportedQuestionError(str(exc)) from exc
+            except TextToSQLCannotAnswerError:
+                resolution = self.intent_classifier.classify(normalized_question)
+                if resolution.intent == AIQueryIntent.dashboard_query:
+                    raise AIIntentNotImplementedError(
+                        "Intent 'dashboard_query' is recognized but not implemented in this MVP."
+                    )
+                if resolution.intent == AIQueryIntent.action_proposal:
+                    raise AIIntentNotImplementedError(
+                        "Intent 'action_proposal' is recognized but not implemented in this MVP."
+                    )
+                return self._handle_general_knowledge(question=normalized_question)
+            except (OdooQuerySourceNotConfiguredError, OdooConnectionError, OdooAuthenticationError, OdooRequestError):
+                resolution = self.intent_classifier.classify(normalized_question)
+                if not resolution.handler:
+                    return self._handle_general_knowledge(question=normalized_question)
+                raise
 
         runtime = self.odoo_query_service.build_runtime_context()
         resolution = self.intent_classifier.classify(normalized_question)
@@ -92,6 +107,8 @@ class AIOrchestratorService:
             )
 
         if not resolution.handler:
+            if settings.TEXT2SQL_ENABLED and any_provider_configured():
+                return self._handle_general_knowledge(question=normalized_question)
             raise AIUnsupportedQuestionError(
                 "This question is not supported yet. Try asking about top customers, products, sales summary, invoice status, or recent orders."
             )
@@ -159,3 +176,40 @@ class AIOrchestratorService:
                 value = int(match.group(1))
                 return max(1, min(value, 50))
         return default
+
+    def _handle_general_knowledge(self, *, question: str) -> AIQueryResponse:
+        system_prompt = (
+            "You are MyERPPilot AI, a secure and intelligent enterprise AI copilot. "
+            "The user is asking a general question, greeting, or business/technical concept question. "
+            "Answer the user's question directly using clear, professional natural language. "
+            "In addition, propose 2-3 relevant business or analytical actions they can perform (e.g. 'View top selling products', 'Check latest sales orders')."
+        )
+        user_prompt = f"User question: {question}"
+
+        try:
+            res = self.text_to_sql_service.provider_chain.generate_general(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+            summary = res.get("summary", "Hello! How can I assist you with your ERP data today?")
+            suggested_actions = res.get("suggested_actions", [
+                "Show top products",
+                "List recent orders",
+                "Show sales summary"
+            ])
+        except Exception:
+            summary = "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?"
+            suggested_actions = [
+                "Show top products",
+                "List recent orders",
+                "Show sales summary"
+            ]
+
+        return build_ai_response(
+            question=question,
+            intent=AIQueryIntent.general_query,
+            handler="general_knowledge",
+            summary=summary,
+            data={},
+            suggested_actions=suggested_actions,
+        )

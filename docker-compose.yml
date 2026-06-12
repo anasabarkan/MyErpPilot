@@ -52,6 +52,8 @@ services:
     image: postgres:16-alpine
     container_name: erp-pilot-odoo-db
     profiles: ["odoo"]
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: ${ODOO_DB_NAME:-odoo}
       POSTGRES_USER: ${ODOO_DB_USER:-odoo}
