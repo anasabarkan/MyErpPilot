@@ -61,6 +61,27 @@ def query_ai(
         result = orchestrator.query(question=payload.question, user_id=current_user.id)
         
         if payload.session_id:
+            metadata_payload = {
+                "meta": {
+                    "provider": result.meta.provider,
+                    "model": result.meta.model,
+                    "fallback_used": result.meta.fallback_used,
+                    "generated_sql": result.meta.generated_sql,
+                    "row_count": result.meta.row_count,
+                    "execution_ms": result.meta.execution_ms,
+                    "count": result.meta.count,
+                    "generated_at": result.meta.generated_at.isoformat(),
+                },
+                "provider": result.meta.provider,
+                "model": result.meta.model,
+                "fallback_used": result.meta.fallback_used,
+                "generated_sql": result.meta.generated_sql,
+                "row_count": result.meta.row_count,
+                "execution_ms": result.meta.execution_ms,
+            }
+            if result.visualization:
+                metadata_payload["visualization"] = result.visualization.model_dump(mode="json")
+
             user_msg = ChatMessage(
                 session_id=payload.session_id,
                 role="user",
@@ -74,14 +95,7 @@ def query_ai(
                 handler=result.handler,
                 data=result.data,
                 suggested_actions=result.suggested_actions,
-                metadata_json={
-                    "provider": result.meta.provider,
-                    "model": result.meta.model,
-                    "fallback_used": result.meta.fallback_used,
-                    "generated_sql": result.meta.generated_sql,
-                    "row_count": result.meta.row_count,
-                    "execution_ms": result.meta.execution_ms,
-                }
+                metadata_json=metadata_payload,
             )
             db.add(user_msg)
             db.add(assistant_msg)

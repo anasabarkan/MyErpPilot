@@ -5,6 +5,8 @@ AI orchestration service for natural language business queries.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from app.integrations.odoo import OdooRequestError, OdooConnectionError, OdooAut
 from app.orchestrator.intent_classifier import AIIntentClassifier
 from app.schemas.ai import AIQueryIntent, AIQueryResponse
 from app.services.ai_response_builder import build_ai_response
+from app.services.ai_visualization_service import build_visualization_spec
 from app.services.llm_provider_service import any_provider_configured
 from app.services.odoo_query_service import (
     OdooQueryExecutionError,
@@ -30,6 +33,13 @@ class AIUnsupportedQuestionError(RuntimeError):
 
 class AIIntentNotImplementedError(RuntimeError):
     """Raised when the intent is known but not implemented in current MVP."""
+
+
+@dataclass(frozen=True)
+class _DateRange:
+    date_from: str
+    date_to: str
+    label: str
 
 
 class AIOrchestratorService:
@@ -115,16 +125,23 @@ class AIOrchestratorService:
 
         limit = self._extract_limit_from_question(normalized_question, default=5)
         handler = resolution.handler
+        date_range = self._extract_date_range_from_question(normalized_question)
 
         try:
-            data = self._run_handler(handler=handler, runtime=runtime, limit=limit)
+            data = self._run_handler(handler=handler, runtime=runtime, limit=limit, date_range=date_range)
         except OdooQueryExecutionError:
             raise
         except OdooRequestError as exc:
             raise OdooQueryExecutionError(str(exc)) from exc
 
-        summary = self._build_summary(handler=handler, limit=limit)
+        summary = self._build_summary(handler=handler, limit=limit, date_range=date_range)
         suggested_actions = self._HANDLER_SUGGESTED_ACTIONS.get(handler, [])
+        visualization = build_visualization_spec(
+            question=normalized_question,
+            handler=handler,
+            data=data,
+            summary=summary,
+        )
 
         return build_ai_response(
             question=normalized_question,
@@ -133,13 +150,18 @@ class AIOrchestratorService:
             summary=summary,
             data=data,
             suggested_actions=suggested_actions,
+            visualization=visualization,
         )
 
-    def _build_summary(self, *, handler: str, limit: int) -> str:
+    def _build_summary(self, *, handler: str, limit: int, date_range: _DateRange | None = None) -> str:
         template = self._HANDLER_SUMMARIES.get(handler)
         if not template:
-            return "Here is the result."
-        return template.format(limit=limit)
+            summary = "Here is the result."
+        else:
+            summary = template.format(limit=limit)
+        if date_range:
+            return f"{summary.rstrip('.')} for {date_range.label}."
+        return summary
 
     def _run_handler(
         self,
@@ -147,13 +169,18 @@ class AIOrchestratorService:
         handler: str,
         runtime: OdooRuntimeContext,
         limit: int,
+        date_range: _DateRange | None,
     ) -> list[dict[str, object]] | dict[str, object]:
+        date_kwargs = {}
+        if date_range:
+            date_kwargs = {"date_from": date_range.date_from, "date_to": date_range.date_to}
+
         if handler == "get_top_customers":
-            return self.odoo_query_service.get_top_customers(runtime, limit=limit)
+            return self.odoo_query_service.get_top_customers(runtime, limit=limit, **date_kwargs)
         if handler == "get_top_products":
-            return self.odoo_query_service.get_top_products(runtime, limit=limit)
+            return self.odoo_query_service.get_top_products(runtime, limit=limit, **date_kwargs)
         if handler == "get_sales_summary":
-            return self.odoo_query_service.get_sales_summary(runtime)
+            return self.odoo_query_service.get_sales_summary(runtime, **date_kwargs)
         if handler == "get_invoice_status_summary":
             return self.odoo_query_service.get_invoice_status_summary(runtime)
         if handler == "get_recent_orders":
@@ -176,6 +203,37 @@ class AIOrchestratorService:
                 value = int(match.group(1))
                 return max(1, min(value, 50))
         return default
+
+    @staticmethod
+    def _extract_date_range_from_question(question: str) -> _DateRange | None:
+        current_year = datetime.now(timezone.utc).year
+
+        if any(phrase in question for phrase in ("this year", "current year", "cette annee", "cette année")):
+            return _DateRange(
+                date_from=f"{current_year}-01-01 00:00:00",
+                date_to=f"{current_year}-12-31 23:59:59",
+                label=str(current_year),
+            )
+
+        if "last year" in question or "previous year" in question:
+            year = current_year - 1
+            return _DateRange(
+                date_from=f"{year}-01-01 00:00:00",
+                date_to=f"{year}-12-31 23:59:59",
+                label=str(year),
+            )
+
+        if "this month" in question or "current month" in question:
+            now = datetime.now(timezone.utc)
+            next_month_year = now.year + (1 if now.month == 12 else 0)
+            next_month = 1 if now.month == 12 else now.month + 1
+            return _DateRange(
+                date_from=f"{now.year}-{now.month:02d}-01 00:00:00",
+                date_to=f"{next_month_year}-{next_month:02d}-01 00:00:00",
+                label=now.strftime("%B %Y"),
+            )
+
+        return None
 
     def _handle_general_knowledge(self, *, question: str) -> AIQueryResponse:
         system_prompt = (

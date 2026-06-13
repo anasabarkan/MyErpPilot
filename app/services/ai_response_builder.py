@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.schemas.ai import AIQueryIntent, AIQueryMeta, AIQueryResponse
+from app.schemas.ai import AIQueryIntent, AIQueryMeta, AIQueryResponse, AIVisualizationSpec
 
 
 def build_ai_response(
@@ -20,6 +20,7 @@ def build_ai_response(
     suggested_actions: list[str] | None = None,
     source: str = "odoo",
     meta_overrides: dict[str, Any] | None = None,
+    visualization: AIVisualizationSpec | None = None,
 ) -> AIQueryResponse:
     normalized_data = _normalize_data_payload(data)
     meta_payload = {
@@ -37,6 +38,7 @@ def build_ai_response(
         summary=summary,
         data=normalized_data,
         suggested_actions=suggested_actions or [],
+        visualization=visualization,
         meta=AIQueryMeta(**meta_payload),
     )
 

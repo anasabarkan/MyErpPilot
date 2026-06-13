@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -26,18 +27,27 @@ class _FakeRuntime:
 class _FakeOdooQueryService:
     def __init__(self) -> None:
         self.last_limit = None
+        self.last_date_from = None
+        self.last_date_to = None
 
     def build_runtime_context(self) -> _FakeRuntime:
         return _FakeRuntime()
 
-    def get_top_customers(self, runtime: _FakeRuntime, *, limit: int = 5):
+    def get_top_customers(self, runtime: _FakeRuntime, *, limit: int = 5, date_from=None, date_to=None):
         self.last_limit = limit
+        self.last_date_from = date_from
+        self.last_date_to = date_to
         return [{"customer_id": 1, "customer_name": "Agrolait", "sales_amount": 1500.0}]
 
-    def get_top_products(self, runtime: _FakeRuntime, *, limit: int = 5):
-        return [{"product_id": 2, "product_name": "Desk", "sales_amount": 900.0}]
+    def get_top_products(self, runtime: _FakeRuntime, *, limit: int = 5, date_from=None, date_to=None):
+        self.last_limit = limit
+        self.last_date_from = date_from
+        self.last_date_to = date_to
+        return [{"product_id": 2, "product_name": "Desk", "quantity_sold": 4.0, "revenue": 900.0}]
 
-    def get_sales_summary(self, runtime: _FakeRuntime):
+    def get_sales_summary(self, runtime: _FakeRuntime, *, date_from=None, date_to=None):
+        self.last_date_from = date_from
+        self.last_date_to = date_to
         return {"revenue_total": 10000.0}
 
     def get_invoice_status_summary(self, runtime: _FakeRuntime):
@@ -70,6 +80,24 @@ def test_orchestrator_returns_summary_intent_for_sales_summary():
     assert result.intent == AIQueryIntent.summary_query
     assert result.handler == "get_sales_summary"
     assert result.data["revenue_total"] == 10000.0
+
+
+def test_orchestrator_returns_visualization_for_product_graph_this_year():
+    service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
+    fake_odoo = _FakeOdooQueryService()
+    service.odoo_query_service = fake_odoo  # type: ignore[assignment]
+    year = datetime.now(timezone.utc).year
+
+    result = service.query(question="Give me the graph of selling products this year", user_id=uuid4())
+
+    assert result.handler == "get_top_products"
+    assert result.visualization is not None
+    assert result.visualization.type == "bar"
+    assert result.visualization.x_key == "product_name"
+    assert result.visualization.y_keys == ["revenue"]
+    assert fake_odoo.last_date_from == f"{year}-01-01 00:00:00"
+    assert fake_odoo.last_date_to == f"{year}-12-31 23:59:59"
+    assert str(year) in result.summary
 
 
 def test_orchestrator_rejects_unsupported_question():

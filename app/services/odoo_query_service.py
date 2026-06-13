@@ -75,13 +75,22 @@ class OdooQueryService:
             available_models=available_models,
         )
 
-    def get_top_customers(self, runtime: OdooRuntimeContext, *, limit: int = 5) -> list[dict[str, Any]]:
+    def get_top_customers(
+        self,
+        runtime: OdooRuntimeContext,
+        *,
+        limit: int = 5,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict[str, Any]]:
         self._ensure_model(runtime, "sale.order")
         safe_limit = self._coerce_limit(limit, default=5, maximum=100)
+        domain = [("state", "in", ["sale", "done"])]
+        domain.extend(self._date_domain("date_order", date_from=date_from, date_to=date_to))
         rows = self._read_group(
             runtime,
             model="sale.order",
-            domain=[("state", "in", ["sale", "done"])],
+            domain=domain,
             fields=["partner_id", "amount_total:sum", "id:count"],
             groupby=["partner_id"],
         )
@@ -120,13 +129,22 @@ class OdooQueryService:
         )
         return customers[:safe_limit]
 
-    def get_top_products(self, runtime: OdooRuntimeContext, *, limit: int = 5) -> list[dict[str, Any]]:
+    def get_top_products(
+        self,
+        runtime: OdooRuntimeContext,
+        *,
+        limit: int = 5,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict[str, Any]]:
         self._ensure_model(runtime, "sale.order.line")
         safe_limit = self._coerce_limit(limit, default=5, maximum=100)
+        domain = [("order_id.state", "in", ["sale", "done"])]
+        domain.extend(self._date_domain("order_id.date_order", date_from=date_from, date_to=date_to))
         rows = self._read_group(
             runtime,
             model="sale.order.line",
-            domain=[("order_id.state", "in", ["sale", "done"])],
+            domain=domain,
             fields=["product_id", "price_total:sum", "product_uom_qty:sum", "id:count"],
             groupby=["product_id"],
         )
@@ -158,28 +176,35 @@ class OdooQueryService:
         )
         return products[:safe_limit]
 
-    def get_sales_summary(self, runtime: OdooRuntimeContext) -> dict[str, Any]:
+    def get_sales_summary(
+        self,
+        runtime: OdooRuntimeContext,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
         self._ensure_model(runtime, "sale.order")
+        date_domain = self._date_domain("date_order", date_from=date_from, date_to=date_to)
 
         total_orders = runtime.client.search_count(
             user_id=runtime.user_id,
             model="sale.order",
-            domain=[],
+            domain=date_domain,
         )
         quotations = runtime.client.search_count(
             user_id=runtime.user_id,
             model="sale.order",
-            domain=[("state", "in", ["draft", "sent"])],
+            domain=[("state", "in", ["draft", "sent"]), *date_domain],
         )
         confirmed_orders = runtime.client.search_count(
             user_id=runtime.user_id,
             model="sale.order",
-            domain=[("state", "in", ["sale", "done"])],
+            domain=[("state", "in", ["sale", "done"]), *date_domain],
         )
         grouped = self._read_group(
             runtime,
             model="sale.order",
-            domain=[("state", "in", ["sale", "done"])],
+            domain=[("state", "in", ["sale", "done"]), *date_domain],
             fields=["amount_total:sum"],
             groupby=[],
             limit=1,
@@ -296,6 +321,20 @@ class OdooQueryService:
             )
 
         return [row for row in payload if isinstance(row, dict)]
+
+    @staticmethod
+    def _date_domain(
+        field_name: str,
+        *,
+        date_from: str | None,
+        date_to: str | None,
+    ) -> list[tuple[str, str, str]]:
+        domain: list[tuple[str, str, str]] = []
+        if date_from:
+            domain.append((field_name, ">=", date_from))
+        if date_to:
+            domain.append((field_name, "<=", date_to))
+        return domain
 
     def _load_available_models(
         self,

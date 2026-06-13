@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.schemas.ai import AIQueryIntent, AIQueryResponse
 from app.services.ai_response_builder import build_ai_response
+from app.services.ai_visualization_service import build_visualization_spec
 from app.services.llm_provider_service import LLMProviderError, TextToSQLProviderChain
 from app.services.odoo_query_service import OdooQueryExecutionError, OdooQueryService
 from app.services.sql_execution_service import SQLExecutionError, SQLExecutionService
@@ -65,16 +66,25 @@ class TextToSQLService:
         except SQLExecutionError as exc:
             raise OdooQueryExecutionError("Text-to-SQL execution failed.") from exc
 
+        summary = draft.summary or "Here are the results from your Odoo data."
+        visualization = build_visualization_spec(
+            question=question,
+            handler="text_to_sql",
+            data=rows,
+            summary=summary,
+        )
+
         return build_ai_response(
             question=question,
             intent=AIQueryIntent.analytics_query,
             handler="text_to_sql",
-            summary=draft.summary or "Here are the results from your Odoo data.",
+            summary=summary,
             data=rows,
             suggested_actions=[
                 "Review the generated SQL in debug mode before using results for decisions.",
                 "Refine the question with a date range or business filter for a narrower answer.",
             ],
+            visualization=visualization,
             meta_overrides={
                 "provider": draft.provider,
                 "model": draft.model,

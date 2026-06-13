@@ -36,15 +36,30 @@ class AIIntentClassifier:
     _SUMMARY_KEYWORDS = ("summary", "summarize", "recap", "overview of")
 
     _HANDLER_KEYWORDS: dict[str, tuple[str, ...]] = {
-        "get_top_customers": ("top customers", "best customers", "biggest customers"),
-        "get_top_products": ("best selling products", "top products", "best products"),
-        "get_sales_summary": ("sales summary", "revenue summary", "sales overview"),
+        "get_top_customers": (
+            "top customers",
+            "best customers",
+            "biggest customers",
+            "customer sales",
+            "sales by customer",
+        ),
+        "get_top_products": (
+            "best selling products",
+            "selling products",
+            "sold products",
+            "top products",
+            "top selling products",
+            "best products",
+            "product sales",
+            "sales by product",
+        ),
+        "get_sales_summary": ("sales summary", "revenue summary", "sales overview", "sales chart", "sales graph"),
         "get_invoice_status_summary": ("invoice status", "invoices status", "invoice payment status"),
         "get_recent_orders": ("recent orders", "latest orders", "last orders"),
     }
     _HANDLER_PATTERNS: dict[str, tuple[str, ...]] = {
         "get_top_customers": (r"\btop\s+\d+\s+customers?\b",),
-        "get_top_products": (r"\btop\s+\d+\s+products?\b",),
+        "get_top_products": (r"\btop\s+\d+\s+products?\b", r"\b(graph|graphe|chart|diagramme?)\b.*\bproducts?\b"),
         "get_recent_orders": (r"\brecent\s+\d+\s+orders?\b", r"\blast\s+\d+\s+orders?\b"),
     }
 
