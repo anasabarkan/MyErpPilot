@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +22,7 @@ class AIQueryIntent(str, Enum):
 
 class AIQueryRequest(BaseModel):
     question: str = Field(..., min_length=2, max_length=2000)
+    session_id: UUID | None = None
 
 
 class AIQueryMeta(BaseModel):

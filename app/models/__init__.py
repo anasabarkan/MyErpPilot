@@ -7,3 +7,4 @@ from .approval import ApprovalRequest
 from .audit_log import AuditLog
 from .data_source import DataSource
 from .registration_request import RegistrationRequest
+from .chat import ChatSession, ChatMessage

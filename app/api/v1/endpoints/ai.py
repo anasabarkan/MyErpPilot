@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user, require_permission
 from app.database.session import get_db
 from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
+from app.models.chat import ChatMessage, ChatSession
 from app.models.user import User
 from app.schemas.ai import AIQueryRequest, AIQueryResponse
 from app.services import audit_service
@@ -58,6 +59,35 @@ def query_ai(
 
     try:
         result = orchestrator.query(question=payload.question, user_id=current_user.id)
+        
+        if payload.session_id:
+            user_msg = ChatMessage(
+                session_id=payload.session_id,
+                role="user",
+                content=payload.question,
+            )
+            assistant_msg = ChatMessage(
+                session_id=payload.session_id,
+                role="assistant",
+                content=result.summary,
+                intent=result.intent.value if hasattr(result.intent, "value") else str(result.intent),
+                handler=result.handler,
+                data=result.data,
+                suggested_actions=result.suggested_actions,
+                metadata_json={
+                    "provider": result.meta.provider,
+                    "model": result.meta.model,
+                    "fallback_used": result.meta.fallback_used,
+                    "generated_sql": result.meta.generated_sql,
+                    "row_count": result.meta.row_count,
+                    "execution_ms": result.meta.execution_ms,
+                }
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            # Update session's updated_at by touching a field or executing an update
+            db.query(ChatSession).filter(ChatSession.id == payload.session_id).update({"updated_at": result.meta.generated_at})
+            db.commit()
     except OdooQuerySourceNotConfiguredError as exc:
         _log_ai_failure(
             db=db,

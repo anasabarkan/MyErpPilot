@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # Now import our application's session and settings
 from app.core.config import settings
 from app.database.session import Base
+import app.models  # noqa: F401
 
 # This is the Alembic Config object, which provides access to
 # the values within the .ini file in use.
