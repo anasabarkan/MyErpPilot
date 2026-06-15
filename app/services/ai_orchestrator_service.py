@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.odoo import OdooRequestError, OdooConnectionError, OdooAuthenticationError
 from app.orchestrator.intent_classifier import AIIntentClassifier
-from app.schemas.ai import AIQueryIntent, AIQueryResponse
+from app.schemas.ai import AIQueryIntent, AIQueryResponse, AIVisualizationSpec
 from app.services.ai_response_builder import build_ai_response
 from app.services.ai_visualization_service import build_visualization_spec
 from app.services.llm_provider_service import any_provider_configured
@@ -22,6 +22,13 @@ from app.services.odoo_query_service import (
     OdooQueryService,
     OdooRuntimeContext,
     OdooQuerySourceNotConfiguredError,
+)
+from app.services.product_prediction_service import (
+    ProductPredictionDependencyError,
+    ProductPredictionInsufficientDataError,
+    ProductPredictionModelLoadError,
+    ProductPredictionModelMissingError,
+    ProductPredictionService,
 )
 from app.services.text_to_sql_service import TextToSQLCannotAnswerError, TextToSQLService
 from app.core.config import settings
@@ -45,6 +52,7 @@ class _DateRange:
 class AIOrchestratorService:
     _SUPPORTED_INTENTS = {
         AIQueryIntent.analytics_query,
+        AIQueryIntent.prediction_query,
         AIQueryIntent.summary_query,
     }
     _HANDLER_SUMMARIES: dict[str, str] = {
@@ -81,6 +89,7 @@ class AIOrchestratorService:
         self.db = db
         self.intent_classifier = AIIntentClassifier()
         self.odoo_query_service = OdooQueryService(db)
+        self.product_prediction_service = ProductPredictionService()
         self.text_to_sql_service = TextToSQLService(db)
 
     def query(self, *, question: str, user_id: UUID) -> AIQueryResponse:
@@ -88,28 +97,30 @@ class AIOrchestratorService:
         if not normalized_question:
             raise AIUnsupportedQuestionError("Question is empty.")
 
-        if settings.TEXT2SQL_ENABLED and any_provider_configured():
+        initial_resolution = self.intent_classifier.classify(normalized_question)
+        if initial_resolution.intent == AIQueryIntent.prediction_query:
+            return self._handle_prediction_query(question=normalized_question)
+
+        if settings.TEXT2SQL_ENABLED and any_provider_configured() and not initial_resolution.handler:
             try:
                 return self.text_to_sql_service.query(question=normalized_question, user_id=user_id)
             except TextToSQLCannotAnswerError:
-                resolution = self.intent_classifier.classify(normalized_question)
-                if resolution.intent == AIQueryIntent.dashboard_query:
+                if initial_resolution.intent == AIQueryIntent.dashboard_query:
                     raise AIIntentNotImplementedError(
                         "Intent 'dashboard_query' is recognized but not implemented in this MVP."
                     )
-                if resolution.intent == AIQueryIntent.action_proposal:
+                if initial_resolution.intent == AIQueryIntent.action_proposal:
                     raise AIIntentNotImplementedError(
                         "Intent 'action_proposal' is recognized but not implemented in this MVP."
                     )
                 return self._handle_general_knowledge(question=normalized_question)
             except (OdooQuerySourceNotConfiguredError, OdooConnectionError, OdooAuthenticationError, OdooRequestError):
-                resolution = self.intent_classifier.classify(normalized_question)
-                if not resolution.handler:
+                if not initial_resolution.handler:
                     return self._handle_general_knowledge(question=normalized_question)
                 raise
 
         runtime = self.odoo_query_service.build_runtime_context()
-        resolution = self.intent_classifier.classify(normalized_question)
+        resolution = initial_resolution
 
         if resolution.intent not in self._SUPPORTED_INTENTS:
             raise AIIntentNotImplementedError(
@@ -151,6 +162,108 @@ class AIOrchestratorService:
             data=data,
             suggested_actions=suggested_actions,
             visualization=visualization,
+        )
+
+    def _handle_prediction_query(self, *, question: str) -> AIQueryResponse:
+        target_year = self._extract_prediction_target_year(question)
+
+        try:
+            prediction = self.product_prediction_service.predict_best_product(
+                target_year=target_year,
+                limit=5,
+            )
+        except (
+            ProductPredictionDependencyError,
+            ProductPredictionInsufficientDataError,
+            ProductPredictionModelLoadError,
+            ProductPredictionModelMissingError,
+        ) as exc:
+            return self._build_prediction_unavailable_response(
+                question=question,
+                target_year=target_year,
+                reason=str(exc),
+            )
+
+        best_product = prediction.best_product
+        if prediction.data_quality == "limited_data":
+            summary = (
+                f"Limited-data estimate: {best_product.product_name} is currently the strongest product for {target_year}, "
+                f"with estimated revenue of {best_product.predicted_revenue:,.2f} "
+                f"and {best_product.confidence * 100:.1f}% confidence."
+            )
+        elif prediction.data_quality == "short_history":
+            summary = (
+                f"Short-history forecast: {best_product.product_name} is the strongest product for {target_year}, "
+                f"with projected revenue of {best_product.predicted_revenue:,.2f} "
+                f"and {best_product.confidence * 100:.1f}% confidence."
+            )
+        else:
+            summary = (
+                f"I predict {best_product.product_name} is the strongest product for {target_year}, "
+                f"with projected revenue of {best_product.predicted_revenue:,.2f} "
+                f"and {best_product.confidence * 100:.1f}% confidence."
+            )
+        if prediction.warning:
+            summary = f"{summary} {prediction.warning}"
+        chart_data = [
+            {
+                "product_name": candidate.product_name,
+                "predicted_revenue": candidate.predicted_revenue,
+                "confidence": round(candidate.confidence * 100, 2),
+            }
+            for candidate in prediction.candidates
+        ]
+        visualization = AIVisualizationSpec(
+            type="bar",
+            title=f"Predicted top products for {target_year}",
+            data=chart_data,
+            x_key="product_name",
+            y_keys=["predicted_revenue"],
+            x_label="Product",
+            y_label="Predicted Revenue",
+            description="Forecasted from monthly product revenue trends.",
+        )
+
+        return build_ai_response(
+            question=question,
+            intent=AIQueryIntent.prediction_query,
+            handler="predict_best_product",
+            summary=summary,
+            data=prediction.model_dump(mode="json"),
+            suggested_actions=[
+                f"Review stock coverage for {best_product.product_name} before {target_year}.",
+                "Retrain the model after each sales cycle to improve prediction quality.",
+                "Compare the forecast against supplier lead times and margins.",
+            ],
+            visualization=visualization,
+            prediction=prediction,
+        )
+
+    def _build_prediction_unavailable_response(
+        self,
+        *,
+        question: str,
+        target_year: int,
+        reason: str,
+    ) -> AIQueryResponse:
+        return build_ai_response(
+            question=question,
+            intent=AIQueryIntent.prediction_query,
+            handler="predict_best_product",
+            summary=(
+                f"I cannot make a reliable product prediction for {target_year} yet. "
+                f"{reason}"
+            ),
+            data={
+                "status": "prediction_unavailable",
+                "target_period": str(target_year),
+                "reason": reason,
+            },
+            suggested_actions=[
+                "Run python -m app.scripts.train_product_prediction_model to generate the model artifact.",
+                "Make sure Odoo has at least one confirmed product sale with revenue before training.",
+                "Ask for top selling products this year to verify the source data first.",
+            ],
         )
 
     def _build_summary(self, *, handler: str, limit: int, date_range: _DateRange | None = None) -> str:
@@ -234,6 +347,16 @@ class AIOrchestratorService:
             )
 
         return None
+
+    @staticmethod
+    def _extract_prediction_target_year(question: str) -> int:
+        current_year = datetime.now(timezone.utc).year
+        explicit_year = re.search(r"\b(20\d{2})\b", question)
+        if explicit_year:
+            return int(explicit_year.group(1))
+        if "this year" in question or "current year" in question:
+            return current_year
+        return current_year + 1
 
     def _handle_general_knowledge(self, *, question: str) -> AIQueryResponse:
         system_prompt = (

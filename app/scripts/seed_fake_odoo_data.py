@@ -13,9 +13,12 @@ import json
 import os
 import random
 import re
+import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from app.integrations.odoo import (
@@ -70,8 +73,22 @@ SCALE_CONFIGS: dict[str, ScaleConfig] = {
 
 DEFAULT_ODOO_URL = "http://localhost:8069"
 DEFAULT_ODOO_DB = "odoo"
-DEFAULT_ODOO_USER = "odoo"
-DEFAULT_ODOO_PASSWORD = "odoo"
+DEFAULT_ODOO_USER = "admin"
+DEFAULT_ODOO_PASSWORD = "admin"
+
+
+def _env_first(*names: str, default: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return default
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return "<empty>"
+    return f"<set, length {len(value)}>"
 
 
 def _slugify(value: str) -> str:
@@ -116,6 +133,48 @@ def _recent_date(rng: random.Random, *, days_back: int = 120) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def _add_months(year: int, month: int, offset: int) -> tuple[int, int]:
+    month_index = year * 12 + (month - 1) + offset
+    return month_index // 12, month_index % 12 + 1
+
+
+def _days_in_month(year: int, month: int) -> int:
+    next_year, next_month = _add_months(year, month, 1)
+    first_next_month = datetime(next_year, next_month, 1, tzinfo=timezone.utc)
+    last_this_month = first_next_month - timedelta(days=1)
+    return last_this_month.day
+
+
+class DryRunOdooClient:
+    """Minimal offline Odoo client used to make --dry-run instant and credential-free."""
+
+    def search_count(self, *, user_id: int, model: str, domain: list[Any]) -> int:
+        return 1
+
+    def search_read(
+        self,
+        *,
+        user_id: int,
+        model: str,
+        domain: list[Any],
+        fields: list[str] | None = None,
+        limit: int = 80,
+        order: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def execute_kw(
+        self,
+        *,
+        user_id: int,
+        model: str,
+        method: str,
+        args: list[Any] | None = None,
+        kwargs: dict[str, Any] | None = None,
+    ) -> object:
+        return True
+
+
 class Seeder:
     def __init__(
         self,
@@ -126,6 +185,7 @@ class Seeder:
         seed_key: str,
         scale: str,
         dry_run: bool,
+        debug: bool = False,
     ) -> None:
         self.client = client
         self.user_id = user_id
@@ -135,6 +195,7 @@ class Seeder:
         self.scale = scale
         self.scale_config = SCALE_CONFIGS[scale]
         self.dry_run = dry_run
+        self.debug = debug
         seed_material = f"{seed_key}:{scale}".encode("utf-8")
         seed_number = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
         self.rng = random.Random(seed_number)
@@ -163,6 +224,23 @@ class Seeder:
         self.customers: list[dict[str, Any]] = []
         self.suppliers: list[dict[str, Any]] = []
 
+    def _debug(self, message: str) -> None:
+        if self.debug:
+            print(f"[seed][debug] {message}")
+
+    def _progress(self, message: str) -> None:
+        print(f"[seed] {message}")
+
+    @contextmanager
+    def _stage(self, name: str):
+        started_at = perf_counter()
+        self._debug(f"stage '{name}' started")
+        try:
+            yield
+        finally:
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            self._debug(f"stage '{name}' finished in {elapsed_ms}ms")
+
     def _warn(self, message: str) -> None:
         if message not in self.warnings:
             self.warnings.append(message)
@@ -175,6 +253,7 @@ class Seeder:
     def _model_exists(self, model: str) -> bool:
         cached = self.model_exists_cache.get(model)
         if cached is not None:
+            self._debug(f"model_exists cache hit: {model}={cached}")
             return cached
 
         exists = False
@@ -194,6 +273,7 @@ class Seeder:
                 exists = False
 
         self.model_exists_cache[model] = exists
+        self._debug(f"model_exists probe: {model}={exists}")
         return exists
 
     def _search_one(
@@ -421,6 +501,106 @@ class Seeder:
             lines.append(line)
         return lines
 
+    def _prediction_history_config(self) -> dict[str, Any] | None:
+        config = self.fixture.get("prediction_history")
+        return config if isinstance(config, dict) else None
+
+    def _historical_sales_order_count(self, config: dict[str, Any]) -> int:
+        explicit_key = f"{self.scale}_sales_order_count"
+        explicit_value = config.get(explicit_key)
+        if isinstance(explicit_value, int) and explicit_value > 0:
+            return explicit_value
+        return self.scale_config.sales_order_count
+
+    def _historical_months(self, config: dict[str, Any]) -> list[tuple[int, int]]:
+        history_months = int(config.get("history_months", 24) or 24)
+        history_months = max(1, min(history_months, 60))
+        now = datetime.now(timezone.utc)
+        start_year, start_month = _add_months(now.year, now.month, -(history_months - 1))
+        return [_add_months(start_year, start_month, index) for index in range(history_months)]
+
+    def _month_order_counts(self, *, total_orders: int, months: list[tuple[int, int]], config: dict[str, Any]) -> list[int]:
+        seasonality = config.get("seasonality") if isinstance(config.get("seasonality"), dict) else {}
+        weights = [max(float(seasonality.get(str(month), 1.0) or 1.0), 0.1) for _, month in months]
+        weight_total = sum(weights)
+        raw_counts = [total_orders * weight / weight_total for weight in weights]
+        counts = [int(value) for value in raw_counts]
+        remainder = total_orders - sum(counts)
+        ranked_months = sorted(
+            range(len(raw_counts)),
+            key=lambda index: (raw_counts[index] - counts[index], weights[index]),
+            reverse=True,
+        )
+        for index in ranked_months[:remainder]:
+            counts[index] += 1
+        return counts
+
+    def _historical_order_datetime(self, *, year: int, month: int, order_index: int, month_order_count: int) -> str:
+        day_count = _days_in_month(year, month)
+        spacing = day_count / max(month_order_count, 1)
+        day = min(day_count, max(1, int(order_index * spacing) + 1))
+        hour = 9 + (order_index % 9)
+        minute = (order_index * 7) % 60
+        return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:00"
+
+    def _profile_quantity(self, profile: dict[str, Any], *, month_offset: int, calendar_month: int) -> int:
+        base_quantity = max(float(profile.get("base_quantity", 1) or 1), 0.1)
+        monthly_growth = float(profile.get("monthly_growth", 0.0) or 0.0)
+        noise = max(float(profile.get("noise", 0.0) or 0.0), 0.0)
+        peak_months = {int(value) for value in profile.get("peak_months", []) if isinstance(value, int)}
+        spike_months = {int(value) for value in profile.get("spike_months", []) if isinstance(value, int)}
+
+        trend_factor = max(0.2, (1.0 + monthly_growth) ** month_offset)
+        peak_factor = 1.35 if calendar_month in peak_months else 1.0
+        spike_factor = 1.85 if calendar_month in spike_months else 1.0
+        noise_factor = self.rng.uniform(max(0.5, 1.0 - noise), 1.0 + noise)
+        quantity = base_quantity * trend_factor * peak_factor * spike_factor * noise_factor
+        return max(1, int(round(quantity)))
+
+    def _build_historical_sale_lines(
+        self,
+        *,
+        profiles: list[dict[str, Any]],
+        config: dict[str, Any],
+        month_offset: int,
+        calendar_month: int,
+    ) -> list[tuple[int, int, dict[str, Any]]]:
+        lines_per_order_min = max(int(config.get("lines_per_order_min", 2) or 2), 1)
+        lines_per_order_max = max(int(config.get("lines_per_order_max", 5) or 5), lines_per_order_min)
+        selected_count = self.rng.randint(lines_per_order_min, lines_per_order_max)
+
+        lines: list[tuple[int, int, dict[str, Any]]] = []
+        used_skus: set[str] = set()
+        attempts = 0
+        while len(lines) < selected_count and attempts < selected_count * 6:
+            attempts += 1
+            profile = _weighted_choice(profiles, self.rng)
+            sku = str(profile.get("sku", "")).strip()
+            if not sku or sku in used_skus:
+                continue
+            product = self.product_by_sku.get(sku)
+            if not product:
+                continue
+            used_skus.add(sku)
+            quantity = self._profile_quantity(
+                profile,
+                month_offset=month_offset,
+                calendar_month=calendar_month,
+            )
+            lines.append(
+                (
+                    0,
+                    0,
+                    {
+                        "product_id": int(product["product_id"]),
+                        "product_uom_qty": quantity,
+                        "price_unit": float(product["list_price"]),
+                        "name": str(product["name"]),
+                    },
+                )
+            )
+        return lines
+
     def _build_purchase_lines(self, pattern: dict[str, Any]) -> list[tuple[int, int, dict[str, Any]]]:
         qty_min = int(pattern.get("quantity_min", 1))
         qty_max = int(pattern.get("quantity_max", max(qty_min, 1)))
@@ -489,6 +669,12 @@ class Seeder:
             self._warn("Fixture has no sales_patterns; sales order seeding skipped.")
             return
 
+        prediction_history = self._prediction_history_config()
+        if prediction_history:
+            self._debug("prediction_history fixture detected; using historical sales generation")
+            self._ensure_historical_sales_orders(prediction_history)
+            return
+
         confirm_target = int(self.scale_config.sales_order_count * self.scale_config.sales_confirm_ratio)
         for idx in range(1, self.scale_config.sales_order_count + 1):
             ref = f"SO-DEMO-{self.seed_key}-{idx:04d}"
@@ -538,6 +724,99 @@ class Seeder:
                         self.action_counts["sales_orders_confirmed"] += 1
                     except OdooRequestError as exc:
                         self._warn(f"Failed to confirm sale order '{ref}': {exc}")
+
+    def _ensure_historical_sales_orders(self, config: dict[str, Any]) -> None:
+        profiles = [
+            profile
+            for profile in config.get("profiles", [])
+            if isinstance(profile, dict) and str(profile.get("sku", "")).strip() in self.product_by_sku
+        ]
+        if not profiles:
+            self._warn("Fixture prediction_history has no resolvable profiles; historical sales seeding skipped.")
+            return
+
+        total_orders = self._historical_sales_order_count(config)
+        months = self._historical_months(config)
+        month_counts = self._month_order_counts(total_orders=total_orders, months=months, config=config)
+        self._debug(
+            "historical sales plan: "
+            f"orders={total_orders}, months={len(months)}, "
+            f"first={months[0][0]:04d}-{months[0][1]:02d}, "
+            f"last={months[-1][0]:04d}-{months[-1][1]:02d}, "
+            f"profiles={len(profiles)}, min_month_orders={min(month_counts)}, max_month_orders={max(month_counts)}"
+        )
+
+        global_index = 1
+        for month_offset, ((year, month), month_order_count) in enumerate(zip(months, month_counts, strict=False)):
+            self._debug(f"historical month {year:04d}-{month:02d}: planned_orders={month_order_count}")
+            for month_order_index in range(month_order_count):
+                ref = f"SO-DEMO-{self.seed_key}-H{year:04d}{month:02d}-{month_order_index + 1:04d}"
+                existing = self._search_one(
+                    model="sale.order",
+                    domain=[("client_order_ref", "=", ref)],
+                    fields=["id", "state"],
+                )
+                if existing and isinstance(existing.get("id"), int):
+                    self.counters["sale.order"]["skipped"] += 1
+                    continue
+
+                order_lines = self._build_historical_sale_lines(
+                    profiles=profiles,
+                    config=config,
+                    month_offset=month_offset,
+                    calendar_month=month,
+                )
+                if not order_lines:
+                    self._warn(f"Historical sale order '{ref}' has no resolvable products.")
+                    self.counters["sale.order"]["skipped"] += 1
+                    continue
+
+                customer = self.rng.choice(self.customers)
+                order_date = self._historical_order_datetime(
+                    year=year,
+                    month=month,
+                    order_index=month_order_index,
+                    month_order_count=month_order_count,
+                )
+                values = {
+                    "partner_id": int(customer["id"]),
+                    "client_order_ref": ref,
+                    "date_order": order_date,
+                    "origin": f"FAKE-ELEC-HISTORY-{self.seed_key}",
+                    "note": f"Prediction history seed month={year:04d}-{month:02d}; sequence={global_index}",
+                    "order_line": order_lines,
+                }
+
+                if self.dry_run:
+                    order_id = self._next_synthetic_id()
+                else:
+                    order_id = self._create(model="sale.order", values=values)
+                self.counters["sale.order"]["created"] += 1
+
+                if self.dry_run:
+                    self.action_counts["sales_orders_confirmed"] += 1
+                else:
+                    try:
+                        self.client.execute_kw(
+                            user_id=self.user_id,
+                            model="sale.order",
+                            method="action_confirm",
+                            args=[[order_id]],
+                        )
+                        self.client.execute_kw(
+                            user_id=self.user_id,
+                            model="sale.order",
+                            method="write",
+                            args=[[order_id], {"date_order": order_date}],
+                        )
+                        self.action_counts["sales_orders_confirmed"] += 1
+                    except OdooRequestError as exc:
+                        self._warn(f"Failed to confirm historical sale order '{ref}': {exc}")
+                if global_index == 1 or global_index % 100 == 0 or global_index == total_orders:
+                    self._progress(
+                        f"historical sales progress: {global_index}/{total_orders} orders processed"
+                    )
+                global_index += 1
 
     def _ensure_purchase_orders(self) -> None:
         if not self._model_exists("purchase.order"):
@@ -669,14 +948,33 @@ class Seeder:
                     self._warn(f"Failed to post invoice '{ref}': {exc}")
 
     def run(self) -> dict[str, Any]:
-        self._ensure_categories()
-        self._ensure_products()
-        self._ensure_partners()
-        self._ensure_sales_orders()
-        self._ensure_purchase_orders()
-        self._ensure_invoices()
+        self._debug(
+            "fixture summary: "
+            f"categories={len(self.fixture.get('categories', []))}, "
+            f"products={len(self.fixture.get('products', []))}, "
+            f"customers={len(self.fixture.get('customers', []))}, "
+            f"suppliers={len(self.fixture.get('suppliers', []))}, "
+            f"prediction_history={bool(self._prediction_history_config())}"
+        )
+        with self._stage("categories"):
+            self._ensure_categories()
+        with self._stage("products"):
+            self._ensure_products()
+        with self._stage("partners"):
+            self._ensure_partners()
+        with self._stage("sales_orders"):
+            self._ensure_sales_orders()
+        with self._stage("purchase_orders"):
+            self._ensure_purchase_orders()
+        with self._stage("invoices"):
+            self._ensure_invoices()
 
         mode_label = "dry-run" if self.dry_run else "apply"
+        self._debug(
+            "runtime maps: "
+            f"categories={len(self.category_by_name)}, products={len(self.product_by_sku)}, "
+            f"customers={len(self.customers)}, suppliers={len(self.suppliers)}"
+        )
         return {
             "mode": mode_label,
             "seed_key": self.seed_key,
@@ -718,6 +1016,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Data volume scale.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan operations without writing to Odoo.")
+    parser.add_argument("--debug", action="store_true", help="Print safe pipeline diagnostics while seeding.")
 
     parser.add_argument("--url", default=os.getenv("ODOO_URL", DEFAULT_ODOO_URL), help="Odoo base URL.")
     parser.add_argument(
@@ -727,13 +1026,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--username",
-        default=os.getenv("ODOO_DB_USER", DEFAULT_ODOO_USER),
-        help="Odoo username.",
+        default=_env_first("ODOO_USERNAME", "ODOO_USER", default=DEFAULT_ODOO_USER),
+        help="Odoo application username. Uses ODOO_USERNAME/ODOO_USER or defaults to admin.",
     )
     parser.add_argument(
         "--password",
-        default=os.getenv("ODOO_DB_PASSWORD", DEFAULT_ODOO_PASSWORD),
-        help="Odoo password or API key.",
+        default=_env_first("ODOO_PASSWORD", "ODOO_API_KEY", default=DEFAULT_ODOO_PASSWORD),
+        help="Odoo application password or API key. Uses ODOO_PASSWORD/ODOO_API_KEY or defaults to admin.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=5.0,
+        help="Odoo JSON-RPC timeout for real seeding. Dry-run does not connect.",
     )
     return parser
 
@@ -748,18 +1053,49 @@ def main() -> int:
         print(f"[seed] Fixture error: {exc}")
         return 2
 
-    client = OdooJsonRpcClient(
-        base_url=str(args.url).strip().rstrip("/"),
-        database_name=str(args.database).strip(),
-        username=str(args.username).strip(),
-        api_key=str(args.password),
-    )
+    cli_username = any(arg == "--username" or arg.startswith("--username=") for arg in sys.argv[1:])
+    cli_password = any(arg == "--password" or arg.startswith("--password=") for arg in sys.argv[1:])
+    if args.debug:
+        prediction_history = fixture.get("prediction_history") if isinstance(fixture.get("prediction_history"), dict) else {}
+        print("[seed][debug] CLI configuration:")
+        print(f"[seed][debug]   url={str(args.url).strip().rstrip('/')}")
+        print(f"[seed][debug]   database={str(args.database).strip()}")
+        print(f"[seed][debug]   username={str(args.username).strip()} ({'cli' if cli_username else 'env/default'})")
+        print(f"[seed][debug]   password={_mask_secret(str(args.password))} ({'cli' if cli_password else 'env/default'})")
+        print(f"[seed][debug]   fixture={args.fixture}")
+        print(f"[seed][debug]   scale={args.scale}")
+        print(f"[seed][debug]   dry_run={bool(args.dry_run)}")
+        print(
+            "[seed][debug]   prediction_history="
+            f"months={prediction_history.get('history_months', 'n/a')}, "
+            f"large_orders={prediction_history.get('large_sales_order_count', 'n/a')}, "
+            f"profiles={len(prediction_history.get('profiles', [])) if isinstance(prediction_history.get('profiles'), list) else 0}"
+        )
 
-    try:
-        user_id = client.authenticate()
-    except (OdooConnectionError, OdooAuthenticationError, OdooRequestError) as exc:
-        print(f"[seed] Odoo connection/auth error: {exc}")
-        return 3
+    if args.dry_run:
+        client = DryRunOdooClient()
+        user_id = 0
+        print("[seed] Dry-run mode: skipping Odoo connection/authentication.")
+    else:
+        client = OdooJsonRpcClient(
+            base_url=str(args.url).strip().rstrip("/"),
+            database_name=str(args.database).strip(),
+            username=str(args.username).strip(),
+            api_key=str(args.password),
+            timeout_seconds=float(args.timeout_seconds),
+        )
+
+        try:
+            if args.debug:
+                print("[seed][debug] Authenticating against Odoo JSON-RPC...")
+            user_id = client.authenticate()
+        except (OdooConnectionError, OdooAuthenticationError, OdooRequestError) as exc:
+            print(f"[seed] Odoo connection/auth error: {exc}")
+            print("[seed] Hint: use Odoo application credentials, not PostgreSQL credentials.")
+            print("[seed] Example: python -m app.scripts.seed_fake_odoo_data --seed-key electronics-prediction-v1 --scale large --username admin --password <your-odoo-password> --debug")
+            return 3
+        if args.debug:
+            print(f"[seed][debug] Authentication succeeded as user_id={user_id}")
 
     seeder = Seeder(
         client=client,
@@ -768,6 +1104,7 @@ def main() -> int:
         seed_key=str(args.seed_key).strip(),
         scale=str(args.scale).strip(),
         dry_run=bool(args.dry_run),
+        debug=bool(args.debug),
     )
 
     try:

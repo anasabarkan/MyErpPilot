@@ -81,6 +81,8 @@ def query_ai(
             }
             if result.visualization:
                 metadata_payload["visualization"] = result.visualization.model_dump(mode="json")
+            if result.prediction:
+                metadata_payload["prediction"] = result.prediction.model_dump(mode="json")
 
             user_msg = ChatMessage(
                 session_id=payload.session_id,

@@ -32,10 +32,34 @@ class AIIntentClassifier:
         "recommend next action",
         "next best action",
     )
+    _PREDICTION_KEYWORDS = (
+        "forecast",
+        "forcast",
+        "predic",
+        "predict",
+        "predicted",
+        "prediction",
+        "next year",
+        "next month",
+        "future sales",
+        "best product for next",
+        "best product next",
+    )
     _DASHBOARD_KEYWORDS = ("dashboard", "kpi", "overview", "board view")
     _SUMMARY_KEYWORDS = ("summary", "summarize", "recap", "overview of")
 
     _HANDLER_KEYWORDS: dict[str, tuple[str, ...]] = {
+        "predict_best_product": (
+            "predic best product",
+            "predic the best product",
+            "predict best product",
+            "predict the best product",
+            "forcast best product",
+            "forecast best product",
+            "best product next year",
+            "best selling product next year",
+            "best product for next year",
+        ),
         "get_top_customers": (
             "top customers",
             "best customers",
@@ -58,6 +82,10 @@ class AIIntentClassifier:
         "get_recent_orders": ("recent orders", "latest orders", "last orders"),
     }
     _HANDLER_PATTERNS: dict[str, tuple[str, ...]] = {
+        "predict_best_product": (
+            r"\b(predic|predict|forecast|forcast|prediction)\b.*\bproducts?\b",
+            r"\bbest\s+products?\b.*\bnext\s+(year|month)\b",
+        ),
         "get_top_customers": (r"\btop\s+\d+\s+customers?\b",),
         "get_top_products": (r"\btop\s+\d+\s+products?\b", r"\b(graph|graphe|chart|diagramme?)\b.*\bproducts?\b"),
         "get_recent_orders": (r"\brecent\s+\d+\s+orders?\b", r"\blast\s+\d+\s+orders?\b"),
@@ -82,6 +110,9 @@ class AIIntentClassifier:
         return " ".join(question.lower().split())
 
     def _resolve_intent(self, normalized_question: str, *, handler: str | None) -> AIQueryIntent:
+        if handler == "predict_best_product" or any(keyword in normalized_question for keyword in self._PREDICTION_KEYWORDS):
+            return AIQueryIntent.prediction_query
+
         if any(keyword in normalized_question for keyword in self._ACTION_PROPOSAL_KEYWORDS):
             return AIQueryIntent.action_proposal
 

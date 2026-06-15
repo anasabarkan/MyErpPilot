@@ -25,6 +25,8 @@ langgraph-sdk
 openai
 google-genai
 sqlglot
+scikit-learn
+joblib
 
 # ── Utilities ────────────────────────────────────
 python-dotenv

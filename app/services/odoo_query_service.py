@@ -176,6 +176,91 @@ class OdooQueryService:
         )
         return products[:safe_limit]
 
+    def get_product_sales_history(
+        self,
+        runtime: OdooRuntimeContext,
+        *,
+        months: int = 36,
+        max_lines: int = 10000,
+    ) -> list[dict[str, Any]]:
+        self._ensure_model(runtime, "sale.order")
+        self._ensure_model(runtime, "sale.order.line")
+
+        safe_months = self._coerce_limit(months, default=36, maximum=60)
+        safe_max_lines = self._coerce_limit(max_lines, default=10000, maximum=50000)
+        start_year, start_month = self._month_offset(datetime.now(timezone.utc).year, datetime.now(timezone.utc).month, -(safe_months - 1))
+        date_from = f"{start_year}-{start_month:02d}-01 00:00:00"
+
+        try:
+            line_rows = runtime.client.search_read(
+                user_id=runtime.user_id,
+                model="sale.order.line",
+                domain=[
+                    ("order_id.state", "in", ["sale", "done"]),
+                    ("order_id.date_order", ">=", date_from),
+                ],
+                fields=["product_id", "order_id", "price_total", "product_uom_qty"],
+                limit=safe_max_lines,
+                order="id asc",
+            )
+        except OdooRequestError as exc:
+            raise OdooQueryExecutionError(str(exc)) from exc
+
+        order_ids = sorted(
+            {
+                order_id
+                for row in line_rows
+                if (order_id := self._many2one_id(row.get("order_id"))) is not None
+            }
+        )
+        if not order_ids:
+            return []
+
+        try:
+            order_rows = runtime.client.search_read(
+                user_id=runtime.user_id,
+                model="sale.order",
+                domain=[("id", "in", order_ids)],
+                fields=["id", "date_order"],
+                limit=max(len(order_ids), 1),
+                order="date_order asc",
+            )
+        except OdooRequestError as exc:
+            raise OdooQueryExecutionError(str(exc)) from exc
+
+        order_months: dict[int, str] = {}
+        for row in order_rows:
+            raw_id = row.get("id")
+            parsed_date = self._parse_odoo_datetime(row.get("date_order"))
+            if isinstance(raw_id, int) and parsed_date:
+                order_months[raw_id] = f"{parsed_date.year:04d}-{parsed_date.month:02d}"
+
+        grouped: dict[tuple[int, str], dict[str, Any]] = {}
+        for row in line_rows:
+            product_ref = row.get("product_id")
+            product_id = self._many2one_id(product_ref)
+            order_id = self._many2one_id(row.get("order_id"))
+            month = order_months.get(order_id) if order_id is not None else None
+            if product_id is None or not month:
+                continue
+
+            key = (product_id, month)
+            product_name = self._many2one_name(product_ref, default="Unknown Product")
+            entry = grouped.setdefault(
+                key,
+                {
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "month": month,
+                    "revenue": 0.0,
+                    "quantity_sold": 0.0,
+                },
+            )
+            entry["revenue"] = round(float(entry["revenue"]) + self._safe_float(row.get("price_total")), 2)
+            entry["quantity_sold"] = round(float(entry["quantity_sold"]) + self._safe_float(row.get("product_uom_qty")), 2)
+
+        return sorted(grouped.values(), key=lambda item: (str(item["month"]), str(item["product_name"]).lower()))
+
     def get_sales_summary(
         self,
         runtime: OdooRuntimeContext,
@@ -335,6 +420,22 @@ class OdooQueryService:
         if date_to:
             domain.append((field_name, "<=", date_to))
         return domain
+
+    @staticmethod
+    def _month_offset(year: int, month: int, offset: int) -> tuple[int, int]:
+        month_index = year * 12 + (month - 1) + offset
+        return month_index // 12, month_index % 12 + 1
+
+    @staticmethod
+    def _parse_odoo_datetime(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y-%m"):
+            try:
+                return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        return None
 
     def _load_available_models(
         self,

@@ -87,6 +87,7 @@ Thumbs.db
 # =========================
 # AI & Jupyter
 # =========================
+artifacts/
 .ipynb_checkpoints
 .jupyter
 *.ipynb

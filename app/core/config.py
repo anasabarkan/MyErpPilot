@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     TEXT2SQL_ENABLED: bool = True
     TEXT2SQL_MAX_ROWS: int = 100
     TEXT2SQL_TIMEOUT_SECONDS: int = 5
+    PREDICTION_MODEL_PATH: str = "artifacts/models/product_prediction_model.pkl"
+    PREDICTION_HISTORY_MONTHS: int = 36
 
     # JWT + encryption
     SECRET_KEY: str = "change-me-in-production"
