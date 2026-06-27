@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ class _FakeOdooClient:
     def __init__(self) -> None:
         self.next_id = 1
         self.records: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.records["stock.location"] = [{"id": 500, "name": "WH/Stock", "usage": "internal", "company_id": 1}]
         self.calls: list[tuple[str, str, list[Any]]] = []
 
     def search_count(self, *, user_id: int, model: str, domain: list[Any]) -> int:
@@ -33,12 +35,10 @@ class _FakeOdooClient:
             return []
 
         records = self.records.get(model, [])
-        for field_name in ("name", "default_code", "email", "client_order_ref", "partner_ref", "ref"):
-            expected = _domain_value(domain, field_name)
-            if expected is not None:
-                matched = [record for record in records if record.get(field_name) == expected]
-                return matched[: limit or 1]
-        return []
+        matched = [record for record in records if _record_matches_domain(record, domain)]
+        if limit is not None:
+            return matched[:limit]
+        return matched
 
     def execute_kw(
         self,
@@ -71,8 +71,29 @@ def _domain_value(domain: list[Any], field_name: str) -> Any:
     return None
 
 
+def _record_matches_domain(record: dict[str, Any], domain: list[Any]) -> bool:
+    for clause in domain:
+        if not isinstance(clause, (list, tuple)) or len(clause) < 3:
+            continue
+        field_name, operator, expected = clause[0], clause[1], clause[2]
+        if operator != "=":
+            continue
+        if record.get(str(field_name)) != expected:
+            return False
+    return True
+
+
 def _fixture() -> dict[str, Any]:
     return _load_fixture(str(Path("electronics_fake_data.json")))
+
+
+def _positive_seeded_quantity_count(fixture: dict[str, Any]) -> int:
+    products = fixture.get("products", []) if isinstance(fixture.get("products"), list) else []
+    return sum(1 for item in products if float(item.get("quantite", 0) or 0) > 0)
+
+
+def _template_by_default_code(client: _FakeOdooClient, default_code: str) -> dict[str, Any]:
+    return next(record for record in client.records["product.template"] if record.get("default_code") == default_code)
 
 
 def test_large_dry_run_plans_historical_prediction_volume():
@@ -134,6 +155,125 @@ def test_cli_accepts_odoo_application_env_credentials(monkeypatch):
     assert args.password == "demo-secret"
 
 
+def test_new_seeded_products_are_created_as_storable_products():
+    client = _FakeOdooClient()
+    fixture = _fixture()
+    seeder = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    )
+
+    seeder.run()
+
+    template = _template_by_default_code(client, "ELEC-electronics-prediction-v1-IP15-128")
+    assert template["type"] == "product"
+    assert template["sale_ok"] is True
+    assert template["purchase_ok"] is True
+
+
+def test_seed_creates_stock_quants_from_product_quantite():
+    client = _FakeOdooClient()
+    fixture = _fixture()
+    seeder = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    )
+
+    result = seeder.run()
+
+    assert result["model_counts"]["stock.quant"]["created"] == _positive_seeded_quantity_count(fixture)
+    assert seeder.product_by_sku["LG-C4-65"]["quantite"] == 0.0
+
+    charger_product = seeder.product_by_sku["USBC-65W"]
+    charger_quant = next(record for record in client.records["stock.quant"] if record["product_id"] == charger_product["product_id"])
+    assert charger_quant["quantity"] == 40
+
+
+def test_existing_seeded_product_is_updated_from_consumable_to_storable():
+    client = _FakeOdooClient()
+    legacy_fixture = deepcopy(_fixture())
+    legacy_fixture["products"][0]["type"] = "consu"
+    repair_fixture = deepcopy(_fixture())
+    seed_key = "electronics-prediction-v1"
+
+    Seeder(
+        client=client,
+        user_id=1,
+        fixture=legacy_fixture,
+        seed_key=seed_key,
+        scale="small",
+        dry_run=False,
+    ).run()
+    repair_result = Seeder(
+        client=client,
+        user_id=1,
+        fixture=repair_fixture,
+        seed_key=seed_key,
+        scale="small",
+        dry_run=False,
+    ).run()
+
+    template = _template_by_default_code(client, "ELEC-electronics-prediction-v1-IP15-128")
+    assert template["type"] == "product"
+    assert repair_result["model_counts"]["product.template"]["created"] == 0
+    assert repair_result["model_counts"]["product.template"]["skipped"] == len(repair_fixture["products"])
+    assert len([record for record in client.records["product.template"] if record.get("default_code") == "ELEC-electronics-prediction-v1-IP15-128"]) == 1
+
+
+def test_existing_storable_seed_product_is_left_stable_without_duplicates():
+    client = _FakeOdooClient()
+    fixture = _fixture()
+    first_result = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    ).run()
+    second_result = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    ).run()
+
+    assert first_result["model_counts"]["product.template"]["created"] == len(fixture["products"])
+    assert second_result["model_counts"]["product.template"]["created"] == 0
+    assert second_result["model_counts"]["product.template"]["skipped"] == len(fixture["products"])
+    assert len([record for record in client.records["product.template"] if record.get("default_code") == "ELEC-electronics-prediction-v1-IP15-128"]) == 1
+    assert _template_by_default_code(client, "ELEC-electronics-prediction-v1-IP15-128")["type"] == "product"
+
+
+def test_missing_product_type_defaults_to_storable_product():
+    client = _FakeOdooClient()
+    fixture = deepcopy(_fixture())
+    fixture["products"][0].pop("type", None)
+    seeder = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1-missing-type",
+        scale="small",
+        dry_run=False,
+    )
+
+    seeder.run()
+
+    template = _template_by_default_code(client, "ELEC-electronics-prediction-v1-missing-type-IP15-128")
+    assert template["type"] == "product"
+
+
 def test_historical_seed_creates_confirmed_orders_across_24_months():
     client = _FakeOdooClient()
     seeder = Seeder(
@@ -186,3 +326,32 @@ def test_historical_seed_is_idempotent_by_client_order_ref():
 
     assert result["model_counts"]["sale.order"]["created"] == 0
     assert result["model_counts"]["sale.order"]["skipped"] == 120
+
+
+def test_stock_quant_seed_is_idempotent_by_product_and_location():
+    client = _FakeOdooClient()
+    fixture = _fixture()
+    first = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    )
+    second = Seeder(
+        client=client,
+        user_id=1,
+        fixture=fixture,
+        seed_key="electronics-prediction-v1",
+        scale="small",
+        dry_run=False,
+    )
+
+    first.run()
+    result = second.run()
+
+    assert len(client.records["stock.quant"]) == _positive_seeded_quantity_count(fixture)
+    assert result["model_counts"]["stock.quant"]["created"] == 0
+    assert result["model_counts"]["stock.quant"]["updated"] == 0
+    assert result["model_counts"]["stock.quant"]["skipped"] == len(fixture["products"])

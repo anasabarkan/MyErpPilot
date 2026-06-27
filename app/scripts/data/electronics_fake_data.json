@@ -23,39 +23,369 @@
     "Components"
   ],
   "products": [
-    { "name": "iPhone 15 128GB", "sku": "IP15-128", "brand": "Apple", "category": "Smartphones", "list_price": 1099.0, "cost_price": 820.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Galaxy S24 256GB", "sku": "GS24-256", "brand": "Samsung", "category": "Smartphones", "list_price": 999.0, "cost_price": 740.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Redmi Note 13 Pro", "sku": "RN13-PRO", "brand": "Xiaomi", "category": "Smartphones", "list_price": 449.0, "cost_price": 310.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "MacBook Air 13 M3", "sku": "MBA13-M3", "brand": "Apple", "category": "Laptops", "list_price": 1499.0, "cost_price": 1150.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Dell XPS 13", "sku": "DXPS13", "brand": "Dell", "category": "Laptops", "list_price": 1399.0, "cost_price": 1020.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Lenovo ThinkPad E14", "sku": "LTP-E14", "brand": "Lenovo", "category": "Laptops", "list_price": 899.0, "cost_price": 640.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Galaxy Tab S9", "sku": "GTAB-S9", "brand": "Samsung", "category": "Tablets", "list_price": 799.0, "cost_price": 560.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "iPad Air 11", "sku": "IPAD-A11", "brand": "Apple", "category": "Tablets", "list_price": 749.0, "cost_price": 520.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "LG UltraFine 27", "sku": "LG27-UF", "brand": "LG", "category": "Monitors", "list_price": 499.0, "cost_price": 340.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Asus ProArt 32", "sku": "ASUS-PA32", "brand": "Asus", "category": "Monitors", "list_price": 899.0, "cost_price": 620.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Sony Bravia 55 OLED", "sku": "SONY-55O", "brand": "Sony", "category": "TVs", "list_price": 1699.0, "cost_price": 1250.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Samsung QLED 65", "sku": "SAM-65Q", "brand": "Samsung", "category": "TVs", "list_price": 1899.0, "cost_price": 1420.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Sony WH-1000XM5", "sku": "SONY-XM5", "brand": "Sony", "category": "Audio", "list_price": 399.0, "cost_price": 270.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Galaxy Buds2 Pro", "sku": "BUDS2PRO", "brand": "Samsung", "category": "Audio", "list_price": 229.0, "cost_price": 155.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Canon EOS R10", "sku": "CAN-R10", "brand": "Canon", "category": "Cameras", "list_price": 1199.0, "cost_price": 870.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Sony Alpha A6400", "sku": "SONY-A64", "brand": "Sony", "category": "Cameras", "list_price": 1099.0, "cost_price": 790.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "USB-C Charger 65W", "sku": "USBC-65W", "brand": "Lenovo", "category": "Accessories", "list_price": 49.0, "cost_price": 21.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Wireless Mouse Pro", "sku": "MOUSE-PRO", "brand": "HP", "category": "Accessories", "list_price": 39.0, "cost_price": 16.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Mechanical Keyboard TKL", "sku": "KB-TKL", "brand": "Asus", "category": "Accessories", "list_price": 129.0, "cost_price": 62.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "NVMe SSD 1TB", "sku": "SSD-1TB", "brand": "Samsung", "category": "Components", "list_price": 149.0, "cost_price": 88.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "DDR5 RAM 32GB", "sku": "DDR5-32", "brand": "Kingston", "category": "Components", "list_price": 189.0, "cost_price": 120.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "RTX 4070 GPU", "sku": "RTX-4070", "brand": "NVIDIA", "category": "Components", "list_price": 699.0, "cost_price": 520.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "iPhone 16 Pro 256GB", "sku": "IP16P-256", "brand": "Apple", "category": "Smartphones", "list_price": 1299.0, "cost_price": 960.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Galaxy Z Fold6", "sku": "GZFOLD6", "brand": "Samsung", "category": "Smartphones", "list_price": 1799.0, "cost_price": 1320.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "MacBook Pro 14 M4", "sku": "MBP14-M4", "brand": "Apple", "category": "Laptops", "list_price": 2199.0, "cost_price": 1680.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Dell Precision 5680", "sku": "DPREC-5680", "brand": "Dell", "category": "Laptops", "list_price": 2499.0, "cost_price": 1860.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Lenovo Legion Pro 7", "sku": "LEGION-P7", "brand": "Lenovo", "category": "Laptops", "list_price": 2399.0, "cost_price": 1740.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Samsung Odyssey OLED 34", "sku": "ODYS-O34", "brand": "Samsung", "category": "Monitors", "list_price": 1199.0, "cost_price": 840.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "LG OLED C4 65", "sku": "LG-C4-65", "brand": "LG", "category": "TVs", "list_price": 2299.0, "cost_price": 1690.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Sony Alpha A7 IV", "sku": "SONY-A7IV", "brand": "Sony", "category": "Cameras", "list_price": 2499.0, "cost_price": 1840.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "USB-C Dock Pro", "sku": "USBC-DOCK", "brand": "Lenovo", "category": "Accessories", "list_price": 199.0, "cost_price": 105.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "Portable SSD 2TB", "sku": "PSSD-2TB", "brand": "Samsung", "category": "Components", "list_price": 249.0, "cost_price": 150.0, "type": "consu", "tax_profile": "standard" },
-    { "name": "RTX 4080 Super GPU", "sku": "RTX-4080S", "brand": "NVIDIA", "category": "Components", "list_price": 1199.0, "cost_price": 910.0, "type": "consu", "tax_profile": "standard" }
+    {
+      "name": "iPhone 15 128GB",
+      "sku": "IP15-128",
+      "brand": "Apple",
+      "category": "Smartphones",
+      "list_price": 1099,
+      "cost_price": 820,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 4
+    },
+    {
+      "name": "Galaxy S24 256GB",
+      "sku": "GS24-256",
+      "brand": "Samsung",
+      "category": "Smartphones",
+      "list_price": 999,
+      "cost_price": 740,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 7
+    },
+    {
+      "name": "Redmi Note 13 Pro",
+      "sku": "RN13-PRO",
+      "brand": "Xiaomi",
+      "category": "Smartphones",
+      "list_price": 449,
+      "cost_price": 310,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 12
+    },
+    {
+      "name": "MacBook Air 13 M3",
+      "sku": "MBA13-M3",
+      "brand": "Apple",
+      "category": "Laptops",
+      "list_price": 1499,
+      "cost_price": 1150,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 6
+    },
+    {
+      "name": "Dell XPS 13",
+      "sku": "DXPS13",
+      "brand": "Dell",
+      "category": "Laptops",
+      "list_price": 1399,
+      "cost_price": 1020,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 5
+    },
+    {
+      "name": "Lenovo ThinkPad E14",
+      "sku": "LTP-E14",
+      "brand": "Lenovo",
+      "category": "Laptops",
+      "list_price": 899,
+      "cost_price": 640,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 11
+    },
+    {
+      "name": "Galaxy Tab S9",
+      "sku": "GTAB-S9",
+      "brand": "Samsung",
+      "category": "Tablets",
+      "list_price": 799,
+      "cost_price": 560,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 8
+    },
+    {
+      "name": "iPad Air 11",
+      "sku": "IPAD-A11",
+      "brand": "Apple",
+      "category": "Tablets",
+      "list_price": 749,
+      "cost_price": 520,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 9
+    },
+    {
+      "name": "LG UltraFine 27",
+      "sku": "LG27-UF",
+      "brand": "LG",
+      "category": "Monitors",
+      "list_price": 499,
+      "cost_price": 340,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 3
+    },
+    {
+      "name": "Asus ProArt 32",
+      "sku": "ASUS-PA32",
+      "brand": "Asus",
+      "category": "Monitors",
+      "list_price": 899,
+      "cost_price": 620,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 2
+    },
+    {
+      "name": "Sony Bravia 55 OLED",
+      "sku": "SONY-55O",
+      "brand": "Sony",
+      "category": "TVs",
+      "list_price": 1699,
+      "cost_price": 1250,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 1
+    },
+    {
+      "name": "Samsung QLED 65",
+      "sku": "SAM-65Q",
+      "brand": "Samsung",
+      "category": "TVs",
+      "list_price": 1899,
+      "cost_price": 1420,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 4
+    },
+    {
+      "name": "Sony WH-1000XM5",
+      "sku": "SONY-XM5",
+      "brand": "Sony",
+      "category": "Audio",
+      "list_price": 399,
+      "cost_price": 270,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 14
+    },
+    {
+      "name": "Galaxy Buds2 Pro",
+      "sku": "BUDS2PRO",
+      "brand": "Samsung",
+      "category": "Audio",
+      "list_price": 229,
+      "cost_price": 155,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 16
+    },
+    {
+      "name": "Canon EOS R10",
+      "sku": "CAN-R10",
+      "brand": "Canon",
+      "category": "Cameras",
+      "list_price": 1199,
+      "cost_price": 870,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 3
+    },
+    {
+      "name": "Sony Alpha A6400",
+      "sku": "SONY-A64",
+      "brand": "Sony",
+      "category": "Cameras",
+      "list_price": 1099,
+      "cost_price": 790,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 2
+    },
+    {
+      "name": "USB-C Charger 65W",
+      "sku": "USBC-65W",
+      "brand": "Lenovo",
+      "category": "Accessories",
+      "list_price": 49,
+      "cost_price": 21,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 40
+    },
+    {
+      "name": "Wireless Mouse Pro",
+      "sku": "MOUSE-PRO",
+      "brand": "HP",
+      "category": "Accessories",
+      "list_price": 39,
+      "cost_price": 16,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 35
+    },
+    {
+      "name": "Mechanical Keyboard TKL",
+      "sku": "KB-TKL",
+      "brand": "Asus",
+      "category": "Accessories",
+      "list_price": 129,
+      "cost_price": 62,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 18
+    },
+    {
+      "name": "NVMe SSD 1TB",
+      "sku": "SSD-1TB",
+      "brand": "Samsung",
+      "category": "Components",
+      "list_price": 149,
+      "cost_price": 88,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 22
+    },
+    {
+      "name": "DDR5 RAM 32GB",
+      "sku": "DDR5-32",
+      "brand": "Kingston",
+      "category": "Components",
+      "list_price": 189,
+      "cost_price": 120,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 10
+    },
+    {
+      "name": "RTX 4070 GPU",
+      "sku": "RTX-4070",
+      "brand": "NVIDIA",
+      "category": "Components",
+      "list_price": 699,
+      "cost_price": 520,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 5
+    },
+    {
+      "name": "iPhone 16 Pro 256GB",
+      "sku": "IP16P-256",
+      "brand": "Apple",
+      "category": "Smartphones",
+      "list_price": 1299,
+      "cost_price": 960,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 6
+    },
+    {
+      "name": "Galaxy Z Fold6",
+      "sku": "GZFOLD6",
+      "brand": "Samsung",
+      "category": "Smartphones",
+      "list_price": 1799,
+      "cost_price": 1320,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 0
+    },
+    {
+      "name": "MacBook Pro 14 M4",
+      "sku": "MBP14-M4",
+      "brand": "Apple",
+      "category": "Laptops",
+      "list_price": 2199,
+      "cost_price": 1680,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 4
+    },
+    {
+      "name": "Dell Precision 5680",
+      "sku": "DPREC-5680",
+      "brand": "Dell",
+      "category": "Laptops",
+      "list_price": 2499,
+      "cost_price": 1860,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 2
+    },
+    {
+      "name": "Lenovo Legion Pro 7",
+      "sku": "LEGION-P7",
+      "brand": "Lenovo",
+      "category": "Laptops",
+      "list_price": 2399,
+      "cost_price": 1740,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 3
+    },
+    {
+      "name": "Samsung Odyssey OLED 34",
+      "sku": "ODYS-O34",
+      "brand": "Samsung",
+      "category": "Monitors",
+      "list_price": 1199,
+      "cost_price": 840,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 2
+    },
+    {
+      "name": "LG OLED C4 65",
+      "sku": "LG-C4-65",
+      "brand": "LG",
+      "category": "TVs",
+      "list_price": 2299,
+      "cost_price": 1690,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 0
+    },
+    {
+      "name": "Sony Alpha A7 IV",
+      "sku": "SONY-A7IV",
+      "brand": "Sony",
+      "category": "Cameras",
+      "list_price": 2499,
+      "cost_price": 1840,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 2
+    },
+    {
+      "name": "USB-C Dock Pro",
+      "sku": "USBC-DOCK",
+      "brand": "Lenovo",
+      "category": "Accessories",
+      "list_price": 199,
+      "cost_price": 105,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 13
+    },
+    {
+      "name": "Portable SSD 2TB",
+      "sku": "PSSD-2TB",
+      "brand": "Samsung",
+      "category": "Components",
+      "list_price": 249,
+      "cost_price": 150,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 9
+    },
+    {
+      "name": "RTX 4080 Super GPU",
+      "sku": "RTX-4080S",
+      "brand": "NVIDIA",
+      "category": "Components",
+      "list_price": 1199,
+      "cost_price": 910,
+      "type": "product",
+      "tax_profile": "standard",
+      "quantite": 3
+    }
   ],
   "customers": [
     "ElectroHub Retail",
@@ -98,9 +428,9 @@
       "1": 0.92,
       "2": 0.88,
       "3": 0.96,
-      "4": 1.00,
+      "4": 1,
       "5": 1.04,
-      "6": 1.10,
+      "6": 1.1,
       "7": 1.08,
       "8": 1.14,
       "9": 1.18,
@@ -109,37 +439,340 @@
       "12": 1.55
     },
     "profiles": [
-      { "sku": "MBP14-M4", "trend": "winner_growth", "weight": 18, "base_quantity": 2, "monthly_growth": 0.052, "noise": 0.18, "peak_months": [9, 10, 11, 12], "spike_months": [11] },
-      { "sku": "IP16P-256", "trend": "growth", "weight": 15, "base_quantity": 3, "monthly_growth": 0.036, "noise": 0.16, "peak_months": [9, 11, 12] },
-      { "sku": "RTX-4080S", "trend": "growth", "weight": 12, "base_quantity": 2, "monthly_growth": 0.031, "noise": 0.20, "peak_months": [6, 11, 12] },
-      { "sku": "LEGION-P7", "trend": "growth", "weight": 11, "base_quantity": 2, "monthly_growth": 0.024, "noise": 0.18, "peak_months": [8, 9, 11] },
-      { "sku": "GZFOLD6", "trend": "stable_premium", "weight": 8, "base_quantity": 2, "monthly_growth": 0.010, "noise": 0.20, "peak_months": [11, 12] },
-      { "sku": "MBA13-M3", "trend": "stable", "weight": 10, "base_quantity": 2, "monthly_growth": 0.006, "noise": 0.14, "peak_months": [8, 9, 11] },
-      { "sku": "DXPS13", "trend": "stable", "weight": 8, "base_quantity": 2, "monthly_growth": 0.002, "noise": 0.15, "peak_months": [8, 9] },
-      { "sku": "IP15-128", "trend": "declining", "weight": 8, "base_quantity": 3, "monthly_growth": -0.016, "noise": 0.17, "peak_months": [11, 12] },
-      { "sku": "GS24-256", "trend": "declining", "weight": 7, "base_quantity": 3, "monthly_growth": -0.010, "noise": 0.16, "peak_months": [11, 12] },
-      { "sku": "LG-C4-65", "trend": "seasonal", "weight": 7, "base_quantity": 1, "monthly_growth": 0.004, "noise": 0.22, "peak_months": [6, 7, 11, 12] },
-      { "sku": "ODYS-O34", "trend": "seasonal", "weight": 7, "base_quantity": 2, "monthly_growth": 0.008, "noise": 0.18, "peak_months": [8, 9, 11] },
-      { "sku": "SONY-A7IV", "trend": "seasonal", "weight": 5, "base_quantity": 1, "monthly_growth": 0.005, "noise": 0.22, "peak_months": [5, 6, 11, 12] },
-      { "sku": "USBC-DOCK", "trend": "accessory_attach", "weight": 10, "base_quantity": 4, "monthly_growth": 0.018, "noise": 0.15, "peak_months": [8, 9, 11, 12] },
-      { "sku": "PSSD-2TB", "trend": "accessory_attach", "weight": 9, "base_quantity": 3, "monthly_growth": 0.020, "noise": 0.14, "peak_months": [9, 11, 12] },
-      { "sku": "USBC-65W", "trend": "stable_accessory", "weight": 8, "base_quantity": 5, "monthly_growth": 0.004, "noise": 0.12, "peak_months": [9, 11, 12] },
-      { "sku": "MOUSE-PRO", "trend": "stable_accessory", "weight": 7, "base_quantity": 5, "monthly_growth": 0.000, "noise": 0.13, "peak_months": [8, 9] }
+      {
+        "sku": "MBP14-M4",
+        "trend": "winner_growth",
+        "weight": 18,
+        "base_quantity": 2,
+        "monthly_growth": 0.052,
+        "noise": 0.18,
+        "peak_months": [
+          9,
+          10,
+          11,
+          12
+        ],
+        "spike_months": [
+          11
+        ]
+      },
+      {
+        "sku": "IP16P-256",
+        "trend": "growth",
+        "weight": 15,
+        "base_quantity": 3,
+        "monthly_growth": 0.036,
+        "noise": 0.16,
+        "peak_months": [
+          9,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "RTX-4080S",
+        "trend": "growth",
+        "weight": 12,
+        "base_quantity": 2,
+        "monthly_growth": 0.031,
+        "noise": 0.2,
+        "peak_months": [
+          6,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "LEGION-P7",
+        "trend": "growth",
+        "weight": 11,
+        "base_quantity": 2,
+        "monthly_growth": 0.024,
+        "noise": 0.18,
+        "peak_months": [
+          8,
+          9,
+          11
+        ]
+      },
+      {
+        "sku": "GZFOLD6",
+        "trend": "stable_premium",
+        "weight": 8,
+        "base_quantity": 2,
+        "monthly_growth": 0.01,
+        "noise": 0.2,
+        "peak_months": [
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "MBA13-M3",
+        "trend": "stable",
+        "weight": 10,
+        "base_quantity": 2,
+        "monthly_growth": 0.006,
+        "noise": 0.14,
+        "peak_months": [
+          8,
+          9,
+          11
+        ]
+      },
+      {
+        "sku": "DXPS13",
+        "trend": "stable",
+        "weight": 8,
+        "base_quantity": 2,
+        "monthly_growth": 0.002,
+        "noise": 0.15,
+        "peak_months": [
+          8,
+          9
+        ]
+      },
+      {
+        "sku": "IP15-128",
+        "trend": "declining",
+        "weight": 8,
+        "base_quantity": 3,
+        "monthly_growth": -0.016,
+        "noise": 0.17,
+        "peak_months": [
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "GS24-256",
+        "trend": "declining",
+        "weight": 7,
+        "base_quantity": 3,
+        "monthly_growth": -0.01,
+        "noise": 0.16,
+        "peak_months": [
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "LG-C4-65",
+        "trend": "seasonal",
+        "weight": 7,
+        "base_quantity": 1,
+        "monthly_growth": 0.004,
+        "noise": 0.22,
+        "peak_months": [
+          6,
+          7,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "ODYS-O34",
+        "trend": "seasonal",
+        "weight": 7,
+        "base_quantity": 2,
+        "monthly_growth": 0.008,
+        "noise": 0.18,
+        "peak_months": [
+          8,
+          9,
+          11
+        ]
+      },
+      {
+        "sku": "SONY-A7IV",
+        "trend": "seasonal",
+        "weight": 5,
+        "base_quantity": 1,
+        "monthly_growth": 0.005,
+        "noise": 0.22,
+        "peak_months": [
+          5,
+          6,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "USBC-DOCK",
+        "trend": "accessory_attach",
+        "weight": 10,
+        "base_quantity": 4,
+        "monthly_growth": 0.018,
+        "noise": 0.15,
+        "peak_months": [
+          8,
+          9,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "PSSD-2TB",
+        "trend": "accessory_attach",
+        "weight": 9,
+        "base_quantity": 3,
+        "monthly_growth": 0.02,
+        "noise": 0.14,
+        "peak_months": [
+          9,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "USBC-65W",
+        "trend": "stable_accessory",
+        "weight": 8,
+        "base_quantity": 5,
+        "monthly_growth": 0.004,
+        "noise": 0.12,
+        "peak_months": [
+          9,
+          11,
+          12
+        ]
+      },
+      {
+        "sku": "MOUSE-PRO",
+        "trend": "stable_accessory",
+        "weight": 7,
+        "base_quantity": 5,
+        "monthly_growth": 0,
+        "noise": 0.13,
+        "peak_months": [
+          8,
+          9
+        ]
+      }
     ]
   },
   "sales_patterns": [
-    { "name": "Smartphone + Accessories", "weight": 5, "bundle": ["IP15-128", "USBC-65W", "MOUSE-PRO"], "quantity_min": 1, "quantity_max": 3 },
-    { "name": "Premium Laptop Set", "weight": 4, "bundle": ["MBA13-M3", "KB-TKL", "USBC-65W"], "quantity_min": 1, "quantity_max": 2 },
-    { "name": "Midrange Laptop Bundle", "weight": 4, "bundle": ["LTP-E14", "MOUSE-PRO", "KB-TKL"], "quantity_min": 1, "quantity_max": 3 },
-    { "name": "Home Entertainment", "weight": 3, "bundle": ["SONY-55O", "SONY-XM5"], "quantity_min": 1, "quantity_max": 2 },
-    { "name": "Creator Kit", "weight": 2, "bundle": ["CAN-R10", "LG27-UF", "SSD-1TB"], "quantity_min": 1, "quantity_max": 2 },
-    { "name": "Gaming Upgrade", "weight": 3, "bundle": ["RTX-4070", "DDR5-32", "SSD-1TB"], "quantity_min": 1, "quantity_max": 2 }
+    {
+      "name": "Smartphone + Accessories",
+      "weight": 5,
+      "bundle": [
+        "IP15-128",
+        "USBC-65W",
+        "MOUSE-PRO"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 3
+    },
+    {
+      "name": "Premium Laptop Set",
+      "weight": 4,
+      "bundle": [
+        "MBA13-M3",
+        "KB-TKL",
+        "USBC-65W"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 2
+    },
+    {
+      "name": "Midrange Laptop Bundle",
+      "weight": 4,
+      "bundle": [
+        "LTP-E14",
+        "MOUSE-PRO",
+        "KB-TKL"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 3
+    },
+    {
+      "name": "Home Entertainment",
+      "weight": 3,
+      "bundle": [
+        "SONY-55O",
+        "SONY-XM5"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 2
+    },
+    {
+      "name": "Creator Kit",
+      "weight": 2,
+      "bundle": [
+        "CAN-R10",
+        "LG27-UF",
+        "SSD-1TB"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 2
+    },
+    {
+      "name": "Gaming Upgrade",
+      "weight": 3,
+      "bundle": [
+        "RTX-4070",
+        "DDR5-32",
+        "SSD-1TB"
+      ],
+      "quantity_min": 1,
+      "quantity_max": 2
+    }
   ],
   "purchase_patterns": [
-    { "name": "Phone Replenishment", "weight": 5, "bundle": ["IP15-128", "GS24-256", "RN13-PRO"], "quantity_min": 4, "quantity_max": 15 },
-    { "name": "Laptop Replenishment", "weight": 4, "bundle": ["MBA13-M3", "DXPS13", "LTP-E14"], "quantity_min": 3, "quantity_max": 10 },
-    { "name": "Accessories Bulk", "weight": 6, "bundle": ["USBC-65W", "MOUSE-PRO", "KB-TKL"], "quantity_min": 10, "quantity_max": 40 },
-    { "name": "Components Bulk", "weight": 4, "bundle": ["SSD-1TB", "DDR5-32", "RTX-4070"], "quantity_min": 5, "quantity_max": 20 },
-    { "name": "Display & TV Stock", "weight": 3, "bundle": ["LG27-UF", "ASUS-PA32", "SAM-65Q"], "quantity_min": 2, "quantity_max": 8 }
+    {
+      "name": "Phone Replenishment",
+      "weight": 5,
+      "bundle": [
+        "IP15-128",
+        "GS24-256",
+        "RN13-PRO"
+      ],
+      "quantity_min": 4,
+      "quantity_max": 15
+    },
+    {
+      "name": "Laptop Replenishment",
+      "weight": 4,
+      "bundle": [
+        "MBA13-M3",
+        "DXPS13",
+        "LTP-E14"
+      ],
+      "quantity_min": 3,
+      "quantity_max": 10
+    },
+    {
+      "name": "Accessories Bulk",
+      "weight": 6,
+      "bundle": [
+        "USBC-65W",
+        "MOUSE-PRO",
+        "KB-TKL"
+      ],
+      "quantity_min": 10,
+      "quantity_max": 40
+    },
+    {
+      "name": "Components Bulk",
+      "weight": 4,
+      "bundle": [
+        "SSD-1TB",
+        "DDR5-32",
+        "RTX-4070"
+      ],
+      "quantity_min": 5,
+      "quantity_max": 20
+    },
+    {
+      "name": "Display & TV Stock",
+      "weight": 3,
+      "bundle": [
+        "LG27-UF",
+        "ASUS-PA32",
+        "SAM-65Q"
+      ],
+      "quantity_min": 2,
+      "quantity_max": 8
+    }
   ]
 }

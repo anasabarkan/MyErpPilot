@@ -237,3 +237,48 @@ def test_dashboard_diagnostics_success(monkeypatch, client: TestClient):
     assert response.status_code == 200
     assert body["active_source"]["name"] == "Odoo Active"
     assert body["metric_tests"]["customers"]["ok"] is True
+
+
+def test_dashboard_product_states_success(monkeypatch, client: TestClient):
+    monkeypatch.setattr(
+        dashboard_module.dashboard_service,
+        "list_product_inventory_states",
+        lambda _db, state=None, skip=0, limit=100: {
+            "items": [
+                {
+                    "odoo_product_id": 11,
+                    "product_name": "Acoustic Bloc Screens",
+                    "company_id": 1,
+                    "quantity": 4.0,
+                    "reserved_quantity": 1.0,
+                    "available_quantity": 3.0,
+                    "state": "low_stock",
+                    "last_synced_at": "2026-06-27T10:00:00+00:00",
+                    "last_state_changed_at": "2026-06-27T10:00:00+00:00",
+                }
+            ],
+            "total": 1,
+        },
+    )
+
+    response = client.get("/api/v1/dashboard/product-states", params={"state": "low_stock", "skip": 0, "limit": 50})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["total"] == 1
+    assert body["items"][0]["state"] == "low_stock"
+    assert body["items"][0]["available_quantity"] == 3.0
+
+
+def test_dashboard_product_states_missing_active_source(monkeypatch, client: TestClient):
+    monkeypatch.setattr(
+        dashboard_module.dashboard_service,
+        "list_product_inventory_states",
+        lambda _db, state=None, skip=0, limit=100: (_ for _ in ()).throw(
+            DashboardSourceNotConfiguredError("No active Odoo source configured.")
+        ),
+    )
+
+    response = client.get("/api/v1/dashboard/product-states")
+
+    assert response.status_code == 404

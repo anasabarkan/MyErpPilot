@@ -14,6 +14,7 @@ from app.api.v1.endpoints.dashboard import router as dashboard_router
 from app.api.v1.endpoints.data_sources import router as data_sources_router
 from app.api.v1.endpoints.ai import router as ai_router
 from app.api.v1.endpoints.chat import router as chat_router
+from app.api.v1.endpoints.notifications import router as notifications_router
 
 api_v1_router = APIRouter()
 
@@ -30,3 +31,4 @@ api_v1_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashb
 api_v1_router.include_router(data_sources_router, prefix="/data-sources", tags=["Data Sources"])
 api_v1_router.include_router(ai_router, prefix="/ai", tags=["AI"])
 api_v1_router.include_router(chat_router, prefix="/chat/sessions", tags=["Chat"])
+api_v1_router.include_router(notifications_router, prefix="/notifications", tags=["Notifications"])

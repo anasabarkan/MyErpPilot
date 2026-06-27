@@ -5,14 +5,20 @@ Dashboard endpoints powered by active Odoo source data.
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, require_permission
 from app.database.session import get_db
 from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
+from app.models.product_inventory_state import ProductInventoryStatus
 from app.models.user import User
-from app.schemas.dashboard import DashboardAnalyticsResponse, DashboardDiagnosticsResponse, DashboardSummaryResponse
+from app.schemas.dashboard import (
+    DashboardAnalyticsResponse,
+    DashboardDiagnosticsResponse,
+    DashboardProductInventoryStatesResponse,
+    DashboardSummaryResponse,
+)
 from app.services import dashboard_service
 from app.services.dashboard_service import DashboardCredentialError, DashboardSourceNotConfiguredError
 
@@ -63,7 +69,7 @@ def get_dashboard_summary(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Odoo request failed while building dashboard summary: {exc}",
         ) from exc
-    except Exception as exc:  # noqa: BLE001 - keep endpoint errors controlled and JSON-safe
+    except Exception as exc:  # noqa: BLE001
         logger.exception("dashboard_summary_unhandled_error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -108,7 +114,7 @@ def get_dashboard_analytics(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Odoo request failed while building analytics: {exc}",
         ) from exc
-    except Exception as exc:  # noqa: BLE001 - keep endpoint errors controlled and JSON-safe
+    except Exception as exc:  # noqa: BLE001
         logger.exception("dashboard_analytics_unhandled_error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -152,9 +158,41 @@ def get_dashboard_diagnostics(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Odoo request failed while running dashboard diagnostics: {exc}",
         ) from exc
-    except Exception as exc:  # noqa: BLE001 - keep endpoint errors controlled and JSON-safe
+    except Exception as exc:  # noqa: BLE001
         logger.exception("dashboard_diagnostics_unhandled_error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error while fetching dashboard diagnostics.",
+        ) from exc
+
+
+@router.get(
+    "/product-states",
+    response_model=DashboardProductInventoryStatesResponse,
+    dependencies=[Depends(require_permission("query_data"))],
+)
+def get_product_inventory_states(
+    state: ProductInventoryStatus | None = Query(None, description="Optional state filter"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    try:
+        return dashboard_service.list_product_inventory_states(
+            db,
+            state=state,
+            skip=skip,
+            limit=limit,
+        )
+    except DashboardSourceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dashboard_product_states_unhandled_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error while fetching product inventory states.",
         ) from exc

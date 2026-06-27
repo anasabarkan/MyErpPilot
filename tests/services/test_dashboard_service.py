@@ -461,7 +461,7 @@ def test_low_stock_uses_orderpoint_and_defaults_missing_quant_to_zero(monkeypatc
     assert summary["low_stock"] == [{"product": "Desk Lamp", "quantity": 0.0, "min_required": 5.0, "shortage": 5.0}]
 
 
-def test_low_stock_skips_products_without_reorder_rules(monkeypatch):
+def test_low_stock_uses_threshold_without_reorder_rules(monkeypatch):
     class NoOrderPointClient(FakeDashboardClient):
         def search_read(
             self,
@@ -488,9 +488,38 @@ def test_low_stock_skips_products_without_reorder_rules(monkeypatch):
 
     _patch_dashboard_context(monkeypatch, NoOrderPointClient())
     summary = dashboard_service.get_dashboard_summary(db=object())  # type: ignore[arg-type]
-    assert summary["low_stock"] == []
+    assert summary["low_stock"] == [{"product": "No Rule Item", "quantity": 1.0, "min_required": 5.0, "shortage": 4.0}]
 
 
+def test_low_stock_uses_env_threshold_without_reorder_rules(monkeypatch):
+    class NoOrderPointClient(FakeDashboardClient):
+        def search_read(
+            self,
+            *,
+            user_id: int,
+            model: str,
+            domain: list[object] | None = None,
+            fields: list[str] | None = None,
+            limit: int = 80,
+            order: str | None = None,
+        ) -> list[dict[str, object]]:
+            if model == "stock.quant":
+                return [{"product_id": [99, "No Rule Item"], "quantity": 2.0}]
+            if model == "stock.warehouse.orderpoint":
+                return []
+            return super().search_read(
+                user_id=user_id,
+                model=model,
+                domain=domain,
+                fields=fields,
+                limit=limit,
+                order=order,
+            )
+
+    monkeypatch.setattr(dashboard_service.settings, "STOCK_ALERT_MIN_THRESHOLD", 3)
+    _patch_dashboard_context(monkeypatch, NoOrderPointClient())
+    summary = dashboard_service.get_dashboard_summary(db=object())  # type: ignore[arg-type]
+    assert summary["low_stock"] == [{"product": "No Rule Item", "quantity": 2.0, "min_required": 3.0, "shortage": 1.0}]
 def test_low_stock_uses_company_scoped_quantities_to_avoid_false_zero(monkeypatch):
     class CompanyScopedQuantClient(FakeDashboardClient):
         def search_read(
@@ -505,7 +534,6 @@ def test_low_stock_uses_company_scoped_quantities_to_avoid_false_zero(monkeypatc
         ) -> list[dict[str, object]]:
             if model == "stock.quant":
                 assert ("location_id.usage", "=", "internal") in (domain or [])
-                assert ("quantity", "!=", 0) in (domain or [])
                 return [
                     {"product_id": [11, "Acoustic Bloc Screens"], "company_id": [1, "Main Company"], "quantity": 2.0},
                     {"product_id": [11, "Acoustic Bloc Screens"], "company_id": [2, "Other Company"], "quantity": -2.0},
@@ -528,3 +556,43 @@ def test_low_stock_uses_company_scoped_quantities_to_avoid_false_zero(monkeypatc
     assert summary["low_stock"] == [
         {"product": "Acoustic Bloc Screens", "quantity": 2.0, "min_required": 5.0, "shortage": 3.0}
     ]
+
+
+def test_low_stock_includes_active_products_without_quant_or_orderpoint(monkeypatch):
+    class ActiveProductWithoutQuantClient(FakeDashboardClient):
+        def search_read(
+            self,
+            *,
+            user_id: int,
+            model: str,
+            domain: list[object] | None = None,
+            fields: list[str] | None = None,
+            limit: int = 80,
+            order: str | None = None,
+        ) -> list[dict[str, object]]:
+            if model == "stock.quant":
+                return []
+            if model == "stock.warehouse.orderpoint":
+                return []
+            if model == "product.product":
+                return [{"id": 77, "display_name": "Apple iPhone 15 128GB"}]
+            return super().search_read(
+                user_id=user_id,
+                model=model,
+                domain=domain,
+                fields=fields,
+                limit=limit,
+                order=order,
+            )
+
+    _patch_dashboard_context(monkeypatch, ActiveProductWithoutQuantClient())
+    summary = dashboard_service.get_dashboard_summary(db=object())  # type: ignore[arg-type]
+    assert summary["low_stock"] == [
+        {"product": "Apple iPhone 15 128GB", "quantity": 0.0, "min_required": 5.0, "shortage": 5.0}
+    ]
+
+
+
+
+
+

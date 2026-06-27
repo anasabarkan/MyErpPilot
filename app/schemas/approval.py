@@ -26,9 +26,24 @@ class ApprovalResponse(BaseModel):
     validated_at: Optional[datetime] = None
     executed_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
+    
+    # Human-in-the-Loop Low Stock Workflow
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    current_qty: Optional[float] = None
+    min_qty: Optional[float] = None
+    requested_quantity: Optional[float] = None
+    decision_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class ApproveRequest(BaseModel):
+    requested_quantity: float = Field(..., gt=0, description="Quantity to order")
+    decision_reason: Optional[str] = Field(None, description="Optional reason for approval")
+
+class RejectRequest(BaseModel):
+    decision_reason: Optional[str] = Field(None, description="Optional reason for rejection")
 
 class ApprovalUpdateStatus(BaseModel):
     # Depending on endpoint, this might not be needed if endpoints are specifically

@@ -2,7 +2,11 @@
 Pydantic schemas for dashboard summary responses.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
+
+from app.models.product_inventory_state import ProductInventoryStatus
 
 
 class DashboardMetrics(BaseModel):
@@ -167,3 +171,23 @@ class DashboardDiagnosticsResponse(BaseModel):
     models: dict[str, bool]
     metric_tests: DashboardDiagnosticsMetricTests
     warnings: list[str] = Field(default_factory=list)
+
+
+class DashboardProductInventoryStateItem(BaseModel):
+    odoo_product_id: int
+    product_name: str
+    company_id: int | None = None
+    quantity: float = 0.0
+    reserved_quantity: float = 0.0
+    available_quantity: float = 0.0
+    state: ProductInventoryStatus
+    last_synced_at: datetime
+    last_state_changed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DashboardProductInventoryStatesResponse(BaseModel):
+    items: list[DashboardProductInventoryStateItem] = Field(default_factory=list)
+    total: int = 0

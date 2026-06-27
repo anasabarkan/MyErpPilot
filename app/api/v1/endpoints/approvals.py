@@ -2,21 +2,17 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user, require_any_permission, require_permission
 from app.database.session import get_db
 from app.models.approval import ApprovalStatus
 from app.models.user import User
-from app.schemas.approval import ApprovalCreate, ApprovalListResponse, ApprovalResponse
+from app.schemas.approval import ApprovalCreate, ApprovalListResponse, ApprovalResponse, ApproveRequest, RejectRequest
 from app.services import approval_service
 from app.workflows.approval_workflow import ApprovalWorkflowTransitionError
 
 router = APIRouter()
-
-class RejectionRequest(BaseModel):
-    rejection_reason: str
 
 
 @router.post(
@@ -38,7 +34,7 @@ def create_approval_request(
     "",
     response_model=ApprovalListResponse,
     summary="List approval requests",
-    dependencies=[Depends(require_permission("view_audit_logs"))], # Or manager
+    dependencies=[Depends(require_any_permission("approve_action", "view_audit_logs", "execute_action"))],
 )
 def list_approval_requests(
     status_filter: ApprovalStatus = Query(None, description="Filter by status"),
@@ -58,7 +54,7 @@ def list_approval_requests(
     "/{request_id}",
     response_model=ApprovalResponse,
     summary="Get approval request by ID",
-    dependencies=[Depends(require_permission("view_audit_logs"))],
+    dependencies=[Depends(require_any_permission("approve_action", "view_audit_logs", "execute_action"))],
 )
 def get_approval_request(
     request_id: UUID,
@@ -78,11 +74,18 @@ def get_approval_request(
 )
 def approve_request(
     request_id: UUID,
+    obj_in: ApproveRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     try:
-        return approval_service.approve_request(db, request_id, current_user.id)
+        return approval_service.approve_request(
+            db,
+            request_id,
+            current_user.id,
+            requested_quantity=obj_in.requested_quantity,
+            decision_reason=obj_in.decision_reason
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except ApprovalWorkflowTransitionError as e:
@@ -99,12 +102,17 @@ def approve_request(
 )
 def reject_request(
     request_id: UUID,
-    obj_in: RejectionRequest,
+    obj_in: RejectRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     try:
-        return approval_service.reject_request(db, request_id, current_user.id, obj_in.rejection_reason)
+        return approval_service.reject_request(
+            db,
+            request_id,
+            current_user.id,
+            decision_reason=obj_in.decision_reason
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except ApprovalWorkflowTransitionError as e:

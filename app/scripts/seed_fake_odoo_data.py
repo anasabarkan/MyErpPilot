@@ -203,6 +203,7 @@ class Seeder:
         self.counters: dict[str, dict[str, int]] = {
             "product.category": {"created": 0, "skipped": 0},
             "product.template": {"created": 0, "skipped": 0},
+            "stock.quant": {"created": 0, "updated": 0, "skipped": 0},
             "res.partner.customer": {"created": 0, "skipped": 0},
             "res.partner.supplier": {"created": 0, "skipped": 0},
             "sale.order": {"created": 0, "skipped": 0},
@@ -223,6 +224,7 @@ class Seeder:
         self.product_by_sku: dict[str, dict[str, Any]] = {}
         self.customers: list[dict[str, Any]] = []
         self.suppliers: list[dict[str, Any]] = []
+        self._internal_stock_location_cache: dict[str, int | None] | None = None
 
     def _debug(self, message: str) -> None:
         if self.debug:
@@ -305,6 +307,150 @@ class Seeder:
             raise OdooRequestError(f"Unexpected create response for model '{model}'.")
         return result
 
+    def _write(self, *, model: str, record_id: int, values: dict[str, Any]) -> None:
+        result = self.client.execute_kw(
+            user_id=self.user_id,
+            model=model,
+            method="write",
+            args=[[record_id], values],
+        )
+        if result is not True:
+            raise OdooRequestError(f"Unexpected write response for model '{model}'.")
+
+    def _coerce_quantity(self, raw_value: Any, *, sku: str) -> float:
+        if raw_value in (None, ""):
+            return 0.0
+        try:
+            quantity = float(raw_value)
+        except (TypeError, ValueError):
+            self._warn(f"Invalid quantite for SKU '{sku}'. Using 0.")
+            return 0.0
+        if quantity < 0:
+            self._warn(f"Negative quantite for SKU '{sku}' was clamped to 0.")
+            return 0.0
+        return round(quantity, 2)
+
+    def _many2one_id(self, value: Any) -> int | None:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, (list, tuple)) and value and isinstance(value[0], int):
+            return value[0]
+        return None
+
+    def _internal_stock_location(self) -> dict[str, int | None] | None:
+        if self._internal_stock_location_cache is not None:
+            return self._internal_stock_location_cache
+        if not self._model_exists("stock.location"):
+            self._warn("Missing model 'stock.location'. Inventory quantity seeding skipped.")
+            self._internal_stock_location_cache = {}
+            return None
+
+        location_row = self._search_one(
+            model="stock.location",
+            domain=[("usage", "=", "internal")],
+            fields=["id", "company_id", "name", "usage"],
+        )
+        if not location_row or not isinstance(location_row.get("id"), int):
+            self._warn("No internal stock location found. Inventory quantity seeding skipped.")
+            self._internal_stock_location_cache = {}
+            return None
+
+        self._internal_stock_location_cache = {
+            "id": int(location_row["id"]),
+            "company_id": self._many2one_id(location_row.get("company_id")),
+        }
+        self._debug(
+            "resolved internal stock location: "
+            f"id={self._internal_stock_location_cache['id']}, "
+            f"company_id={self._internal_stock_location_cache['company_id']}"
+        )
+        return self._internal_stock_location_cache
+
+    def _stock_quant_values(
+        self,
+        *,
+        product_id: int,
+        location_id: int,
+        quantity: float,
+        company_id: int | None,
+        inventory_adjustment: bool,
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {
+            "product_id": product_id,
+            "location_id": location_id,
+        }
+        if company_id is not None:
+            values["company_id"] = company_id
+        if inventory_adjustment:
+            values["inventory_quantity_auto_apply"] = quantity
+        else:
+            values["quantity"] = quantity
+        return values
+
+    def _upsert_stock_quant(
+        self,
+        *,
+        product_id: int,
+        sku: str,
+        quantity: float,
+        location_id: int,
+        company_id: int | None,
+    ) -> None:
+        existing = self._search_one(
+            model="stock.quant",
+            domain=[("product_id", "=", product_id), ("location_id", "=", location_id)],
+            fields=["id", "quantity"],
+        )
+        if existing and isinstance(existing.get("id"), int):
+            quant_id = int(existing["id"])
+            current_quantity = self._coerce_quantity(existing.get("quantity"), sku=sku)
+            if abs(current_quantity - quantity) < 1e-9:
+                self.counters["stock.quant"]["skipped"] += 1
+                return
+            for inventory_adjustment in (False, True):
+                try:
+                    self._write(
+                        model="stock.quant",
+                        record_id=quant_id,
+                        values=self._stock_quant_values(
+                            product_id=product_id,
+                            location_id=location_id,
+                            quantity=quantity,
+                            company_id=company_id,
+                            inventory_adjustment=inventory_adjustment,
+                        ),
+                    )
+                    self.counters["stock.quant"]["updated"] += 1
+                    return
+                except OdooRequestError:
+                    continue
+            self._warn(f"Failed to update stock.quant for SKU '{sku}'.")
+            self.counters["stock.quant"]["skipped"] += 1
+            return
+
+        if quantity <= 0:
+            self.counters["stock.quant"]["skipped"] += 1
+            return
+
+        for inventory_adjustment in (False, True):
+            try:
+                self._create(
+                    model="stock.quant",
+                    values=self._stock_quant_values(
+                        product_id=product_id,
+                        location_id=location_id,
+                        quantity=quantity,
+                        company_id=company_id,
+                        inventory_adjustment=inventory_adjustment,
+                    ),
+                )
+                self.counters["stock.quant"]["created"] += 1
+                return
+            except OdooRequestError:
+                continue
+        self._warn(f"Failed to create stock.quant for SKU '{sku}'.")
+        self.counters["stock.quant"]["skipped"] += 1
+
     def _ensure_categories(self) -> None:
         if not self._model_exists("product.category"):
             self._warn("Missing model 'product.category'. Categories/products seeding skipped.")
@@ -346,38 +492,42 @@ class Seeder:
             sku = str(item.get("sku", "")).strip()
             if not sku:
                 continue
+            quantity = self._coerce_quantity(item.get("quantite"), sku=sku)
             category_name = str(item.get("category", "")).strip()
             category_id = self.category_by_name.get(category_name)
             if category_id is None:
                 self._warn(f"Category '{category_name}' missing for SKU '{sku}'. Product skipped.")
                 continue
 
+            name = str(item.get("name", sku)).strip()
+            brand = str(item.get("brand", "")).strip()
+            full_name = f"{brand} {name}".strip()
+            product_type = str(item.get("type", "product")).strip() or "product"
             default_code = f"ELEC-{self.seed_key}-{sku}"
+            values = {
+                "name": full_name,
+                "default_code": default_code,
+                "categ_id": category_id,
+                "list_price": float(item.get("list_price", 0.0) or 0.0),
+                "standard_price": float(item.get("cost_price", 0.0) or 0.0),
+                "type": product_type,
+                "sale_ok": True,
+                "purchase_ok": True,
+            }
             found = self._search_one(
                 model="product.template",
                 domain=[("default_code", "=", default_code)],
-                fields=["id", "default_code", "name"],
+                fields=["id", "default_code", "name", "type", "sale_ok", "purchase_ok"],
             )
             if found and isinstance(found.get("id"), int):
                 template_id = int(found["id"])
+                if not self.dry_run:
+                    self._write(model="product.template", record_id=template_id, values=values)
                 self.counters["product.template"]["skipped"] += 1
             else:
                 if self.dry_run:
                     template_id = self._next_synthetic_id()
                 else:
-                    name = str(item.get("name", sku)).strip()
-                    brand = str(item.get("brand", "")).strip()
-                    full_name = f"{brand} {name}".strip()
-                    values = {
-                        "name": full_name,
-                        "default_code": default_code,
-                        "categ_id": category_id,
-                        "list_price": float(item.get("list_price", 0.0) or 0.0),
-                        "standard_price": float(item.get("cost_price", 0.0) or 0.0),
-                        "type": str(item.get("type", "consu")),
-                        "sale_ok": True,
-                        "purchase_ok": True,
-                    }
                     template_id = self._create(model="product.template", values=values)
                 self.counters["product.template"]["created"] += 1
 
@@ -401,7 +551,41 @@ class Seeder:
                 "name": str(item.get("name", sku)),
                 "list_price": float(item.get("list_price", 0.0) or 0.0),
                 "cost_price": float(item.get("cost_price", 0.0) or 0.0),
+                "quantite": quantity,
             }
+
+    def _ensure_stock_levels(self) -> None:
+        if not self.product_by_sku:
+            return
+        if not self._model_exists("stock.quant"):
+            self._warn("Missing model 'stock.quant'. Inventory quantity seeding skipped (install Inventory module).")
+            return
+
+        location = self._internal_stock_location()
+        if not location:
+            return
+
+        location_id = location.get("id")
+        if not isinstance(location_id, int):
+            self._warn("Resolved stock location is invalid. Inventory quantity seeding skipped.")
+            return
+
+        company_id = location.get("company_id")
+        for sku, product in self.product_by_sku.items():
+            quantity = self._coerce_quantity(product.get("quantite"), sku=sku)
+            if self.dry_run:
+                if quantity > 0:
+                    self.counters["stock.quant"]["created"] += 1
+                else:
+                    self.counters["stock.quant"]["skipped"] += 1
+                continue
+            self._upsert_stock_quant(
+                product_id=int(product["product_id"]),
+                sku=sku,
+                quantity=quantity,
+                location_id=location_id,
+                company_id=company_id if isinstance(company_id, int) else None,
+            )
 
     def _partner_email(self, partner_type: str, index: int) -> str:
         return f"demoseed.{partner_type}.{self.seed_slug}.{index:03d}@myerppilot.demo"
@@ -960,6 +1144,8 @@ class Seeder:
             self._ensure_categories()
         with self._stage("products"):
             self._ensure_products()
+        with self._stage("stock_levels"):
+            self._ensure_stock_levels()
         with self._stage("partners"):
             self._ensure_partners()
         with self._stage("sales_orders"):

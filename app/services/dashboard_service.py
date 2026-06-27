@@ -1,4 +1,4 @@
-﻿"""
+"""
 Dashboard summary service backed by the active Odoo source.
 """
 
@@ -12,6 +12,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from app.integrations.odoo import OdooJsonRpcClient, OdooRequestError
+from app.core.config import settings
 from app.models.data_source import DataSource
 from app.repositories import data_source_repository as data_source_repo
 from app.security.encryption import decrypt_value
@@ -1228,13 +1229,14 @@ def get_low_stock_items(
     warnings: list[str],
     limit: int = 8,
 ) -> list[dict[str, float | str]]:
-    if not model_exists_fn("stock.quant") or not model_exists_fn("stock.warehouse.orderpoint"):
+    threshold = settings.stock_alert_min_threshold
+    if not model_exists_fn("stock.quant"):
         _append_warning(warnings, PRODUCTS_MODULE_WARNING)
         return []
 
     stock_quants, quant_error = safe_search_read(
         "stock.quant",
-        [("location_id.usage", "=", "internal"), ("quantity", "!=", 0)],
+        [("location_id.usage", "=", "internal")],
         ["product_id", "company_id", "quantity"],
         "low_stock.stock_quant",
         client=client,
@@ -1251,28 +1253,49 @@ def get_low_stock_items(
         _append_warning(warnings, "Low stock list is temporarily unavailable.")
         return []
 
-    orderpoints, orderpoint_error = safe_search_read(
-        "stock.warehouse.orderpoint",
-        [],
-        ["product_id", "company_id", "product_min_qty"],
-        "low_stock.orderpoints",
-        client=client,
-        user_id=user_id,
-        model_exists_fn=model_exists_fn,
-        limit=5000,
-        order="product_id asc",
-    )
-    if orderpoint_error:
-        logger.warning(
-            "[dashboard][metric][low_stock] stock.warehouse.orderpoint fetch failed",
-            extra={"error": orderpoint_error},
+    orderpoints: list[dict[str, Any]] = []
+    if model_exists_fn("stock.warehouse.orderpoint"):
+        orderpoints, orderpoint_error = safe_search_read(
+            "stock.warehouse.orderpoint",
+            [],
+            ["product_id", "company_id", "product_min_qty"],
+            "low_stock.orderpoints",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists_fn,
+            limit=5000,
+            order="product_id asc",
         )
-        _append_warning(warnings, "Low stock list is temporarily unavailable.")
-        return []
+        if orderpoint_error:
+            logger.warning(
+                "[dashboard][metric][low_stock] stock.warehouse.orderpoint fetch failed",
+                extra={"error": orderpoint_error},
+            )
+            orderpoints = []
+
+    tracked_products: list[dict[str, Any]] = []
+    if model_exists_fn("product.product"):
+        tracked_products, tracked_products_error = safe_search_read(
+            "product.product",
+            [("active", "=", True)],
+            ["id", "display_name"],
+            "low_stock.products",
+            client=client,
+            user_id=user_id,
+            model_exists_fn=model_exists_fn,
+            limit=5000,
+            order="id asc",
+        )
+        if tracked_products_error:
+            logger.warning(
+                "[dashboard][metric][low_stock] product.product fetch failed",
+                extra={"error": tracked_products_error},
+            )
+            tracked_products = []
 
     logger.info(
         "[dashboard][metric][low_stock] source records fetched",
-        extra={"stock_quant_records": len(stock_quants), "orderpoint_records": len(orderpoints)},
+        extra={"stock_quant_records": len(stock_quants), "orderpoint_records": len(orderpoints), "tracked_products": len(tracked_products)},
     )
 
     quantity_by_product: dict[int, float] = {}
@@ -1294,7 +1317,8 @@ def get_low_stock_items(
         company_key = (product_id, company_id)
         quantity_by_product_company[company_key] = quantity_by_product_company.get(company_key, 0.0) + quantity_value
 
-    min_qty_by_product_company: dict[tuple[int, int | None], float] = {}
+    orderpoint_keys: set[tuple[int, int | None]] = set()
+    all_product_company_keys = set(quantity_by_product_company.keys())
     for orderpoint in orderpoints:
         product_ref = orderpoint.get("product_id")
         if not isinstance(product_ref, (list, tuple)) or len(product_ref) < 2:
@@ -1304,27 +1328,42 @@ def get_low_stock_items(
         product_id = product_ref[0]
         product_name = product_ref[1] if isinstance(product_ref[1], str) else "Unknown Product"
         product_name_by_id.setdefault(product_id, product_name)
-        min_qty = _to_float(orderpoint.get("product_min_qty"))
         company_id = _extract_many2one_id(orderpoint.get("company_id"))
-        company_key = (product_id, company_id)
-        if company_key in min_qty_by_product_company:
-            min_qty_by_product_company[company_key] = max(min_qty_by_product_company[company_key], min_qty)
+        key = (product_id, company_id)
+        orderpoint_keys.add(key)
+        all_product_company_keys.add(key)
+
+    for product in tracked_products:
+        product_id = product.get("id")
+        if not isinstance(product_id, int):
+            continue
+        display_name = product.get("display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            product_name_by_id.setdefault(product_id, display_name.strip())
         else:
-            min_qty_by_product_company[company_key] = min_qty
+            product_name_by_id.setdefault(product_id, f"Product #{product_id}")
+        if product_id not in quantity_by_product and product_id not in {product_key for product_key, _company_id in orderpoint_keys}:
+            all_product_company_keys.add((product_id, None))
+
+    products_with_orderpoints = {product_id for product_id, _company_id in orderpoint_keys}
 
     low_stock_by_product: dict[int, dict[str, float | str]] = {}
-    for (product_id, company_id), min_qty in min_qty_by_product_company.items():
+    for product_id, company_id in all_product_company_keys:
+        if product_id in products_with_orderpoints and (product_id, company_id) not in orderpoint_keys:
+            continue
         quantity = quantity_by_product_company.get((product_id, company_id), quantity_by_product.get(product_id, 0.0))
-        if quantity < min_qty:
-            shortage = max(min_qty - quantity, 0.0)
-            existing = low_stock_by_product.get(product_id)
-            if existing is None or _to_float(existing.get("shortage")) < shortage:
-                low_stock_by_product[product_id] = {
-                    "product": product_name_by_id.get(product_id, "Unknown Product"),
-                    "quantity": round(quantity, 2),
-                    "min_required": round(min_qty, 2),
-                    "shortage": round(shortage, 2),
-                }
+        if quantity >= threshold:
+            continue
+
+        shortage = max(threshold - quantity, 0.0)
+        existing = low_stock_by_product.get(product_id)
+        if existing is None or _to_float(existing.get("shortage")) < shortage:
+            low_stock_by_product[product_id] = {
+                "product": product_name_by_id.get(product_id, "Unknown Product"),
+                "quantity": round(quantity, 2),
+                "min_required": round(threshold, 2),
+                "shortage": round(shortage, 2),
+            }
 
     low_stock_items = list(low_stock_by_product.values())
     low_stock_items.sort(key=lambda item: (-float(item["shortage"]), float(item["quantity"])))
@@ -1333,7 +1372,6 @@ def get_low_stock_items(
         extra={"matched_low_stock_items": len(low_stock_items)},
     )
     return low_stock_items[:limit]
-
 
 def _format_low_stock_chart_items(items: list[dict[str, float | str]]) -> list[dict[str, float | str]]:
     chart_rows: list[dict[str, float | str]] = []
@@ -2120,3 +2158,25 @@ def get_dashboard_diagnostics(db: Session) -> dict[str, Any]:
         },
     )
     return diagnostics_payload
+
+
+def list_product_inventory_states(
+    db: Session,
+    *,
+    state: ProductInventoryStatus | str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> dict[str, Any]:
+    active_source = data_source_repo.get_active_data_source(db)
+    if not active_source:
+        raise DashboardSourceNotConfiguredError("No active Odoo source configured.")
+
+    items, total = product_inventory_state_repository.list_states(
+        db,
+        source_id=active_source.id,
+        state=state,
+        skip=skip,
+        limit=limit,
+    )
+    return {"items": items, "total": total}
+

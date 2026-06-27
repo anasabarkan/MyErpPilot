@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user, require_any_permission, require_permission
 from app.database.session import get_db
 from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
 from app.models.user import User
@@ -38,7 +38,7 @@ def _raise_http_from_odoo_error(exc: Exception) -> None:
 @router.post(
     "/test-connection",
     response_model=DataSourceTestResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "test_data_source"))],
 )
 def test_connection_with_payload(
     *,
@@ -56,7 +56,7 @@ def test_connection_with_payload(
 @router.get(
     "/",
     response_model=list[DataSourceResponse],
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "view_data_sources"))],
 )
 def list_data_sources(
     skip: int = 0,
@@ -73,7 +73,7 @@ def list_data_sources(
 @router.get(
     "/active",
     response_model=ActiveDataSourceResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "view_data_sources"))],
 )
 def get_active_data_source(
     db: Session = Depends(get_db),
@@ -89,7 +89,7 @@ def get_active_data_source(
     "/",
     response_model=DataSourceResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources"))],
 )
 def create_data_source(
     *,
@@ -109,7 +109,7 @@ def create_data_source(
 @router.get(
     "/{id}",
     response_model=DataSourceResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "view_data_sources"))],
 )
 def get_data_source(
     id: UUID,
@@ -128,7 +128,7 @@ def get_data_source(
 @router.patch(
     "/{id}",
     response_model=DataSourceResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources"))],
 )
 def update_data_source(
     id: UUID,
@@ -154,7 +154,7 @@ def update_data_source(
     "/{id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources"))],
 )
 def delete_data_source(
     id: UUID,
@@ -173,7 +173,7 @@ def delete_data_source(
 @router.post(
     "/{id}/test",
     response_model=DataSourceTestResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "test_data_source"))],
 )
 def test_saved_data_source(
     id: UUID,
@@ -196,7 +196,7 @@ def test_saved_data_source(
 @router.get(
     "/{id}/models",
     response_model=DataSourceModelsResponse,
-    dependencies=[Depends(require_permission("manage_odoo_sources"))],
+    dependencies=[Depends(require_any_permission("manage_odoo_sources", "manage_data_sources", "view_data_sources", "test_data_source"))],
 )
 def get_data_source_models(
     id: UUID,
@@ -237,4 +237,3 @@ def activate_data_source(
         raise HTTPException(status_code=404, detail="Data source not found.")
 
     return service.activate_data_source(db, data_source)
-

@@ -70,9 +70,23 @@ class Settings(BaseSettings):
 
     # Automatic stock alerts
     STOCK_ALERT_ENABLED: bool = True
-    STOCK_ALERT_SCAN_INTERVAL_SECONDS: int = 3600
+    STOCK_ALERT_SCAN_INTERVAL_MINUTES: int = 15
+    STOCK_ALERT_SCAN_INTERVAL_SECONDS: int | None = None
     STOCK_ALERT_FORECAST_DAYS: int = 7
     STOCK_ALERT_SALES_LOOKBACK_DAYS: int = 30
+    STOCK_ALERT_MIN_THRESHOLD: int = 5
+    DEFAULT_LOW_STOCK_THRESHOLD: int | None = None
+    INVENTORY_MONITORING_INTERVAL_MINUTES: int | None = None
+
+    # Email notifications
+    ENABLE_EMAIL_NOTIFICATIONS: bool = False
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@myerppilot.app"
+    SMTP_USE_TLS: bool = True
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
 
     # Google OAuth2
     GOOGLE_CLIENT_ID: str = ""
@@ -85,6 +99,7 @@ class Settings(BaseSettings):
     ADMIN_SEED_FULL_NAME: str = "System Administrator"
 
     _runtime_fernet_key: str = PrivateAttr(default="")
+    _warned_deprecations: set[str] = PrivateAttr(default_factory=set)
 
     @property
     def database_url(self) -> str:
@@ -103,6 +118,53 @@ class Settings(BaseSettings):
     @property
     def backend_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
+
+    def _warn_deprecated_once(self, key: str, message: str) -> None:
+        if key in self._warned_deprecations:
+            return
+        self._warned_deprecations.add(key)
+        logger.warning(message)
+
+    @property
+    def stock_alert_min_threshold(self) -> float:
+        if "STOCK_ALERT_MIN_THRESHOLD" in self.model_fields_set:
+            return max(float(self.STOCK_ALERT_MIN_THRESHOLD), 0.0)
+        if self.DEFAULT_LOW_STOCK_THRESHOLD is not None:
+            self._warn_deprecated_once(
+                "DEFAULT_LOW_STOCK_THRESHOLD",
+                "DEFAULT_LOW_STOCK_THRESHOLD is deprecated; use STOCK_ALERT_MIN_THRESHOLD instead.",
+            )
+            return max(float(self.DEFAULT_LOW_STOCK_THRESHOLD), 0.0)
+        return max(float(self.STOCK_ALERT_MIN_THRESHOLD), 0.0)
+
+    @property
+    def stock_alert_scan_interval_minutes(self) -> int:
+        if "STOCK_ALERT_SCAN_INTERVAL_MINUTES" in self.model_fields_set:
+            return max(int(self.STOCK_ALERT_SCAN_INTERVAL_MINUTES), 1)
+        if self.INVENTORY_MONITORING_INTERVAL_MINUTES is not None:
+            self._warn_deprecated_once(
+                "INVENTORY_MONITORING_INTERVAL_MINUTES",
+                "INVENTORY_MONITORING_INTERVAL_MINUTES is deprecated; use STOCK_ALERT_SCAN_INTERVAL_MINUTES instead.",
+            )
+            return max(int(self.INVENTORY_MONITORING_INTERVAL_MINUTES), 1)
+        if self.STOCK_ALERT_SCAN_INTERVAL_SECONDS is not None:
+            self._warn_deprecated_once(
+                "STOCK_ALERT_SCAN_INTERVAL_SECONDS",
+                "STOCK_ALERT_SCAN_INTERVAL_SECONDS is deprecated; use STOCK_ALERT_SCAN_INTERVAL_MINUTES instead.",
+            )
+            translated_minutes = int((max(int(self.STOCK_ALERT_SCAN_INTERVAL_SECONDS), 60) + 59) // 60)
+            return max(translated_minutes, 1)
+        return max(int(self.STOCK_ALERT_SCAN_INTERVAL_MINUTES), 1)
+
+    @property
+    def stock_alert_scan_interval_seconds(self) -> int:
+        if (
+            "STOCK_ALERT_SCAN_INTERVAL_MINUTES" not in self.model_fields_set
+            and self.INVENTORY_MONITORING_INTERVAL_MINUTES is None
+            and self.STOCK_ALERT_SCAN_INTERVAL_SECONDS is not None
+        ):
+            return max(int(self.STOCK_ALERT_SCAN_INTERVAL_SECONDS), 60)
+        return max(self.stock_alert_scan_interval_minutes * 60, 60)
 
     def _configured_fernet_key(self) -> str:
         if self._runtime_fernet_key:
@@ -141,5 +203,6 @@ class Settings(BaseSettings):
 
         self.validate_fernet_key_format(key)
         return key
+
 
 settings = Settings()

@@ -10,8 +10,7 @@ from app.core.config import settings
 from app.database.session import Base, engine
 
 # Import models so SQLAlchemy registers them with Base.metadata
-import app.models.user  # noqa: F401 — User
-import app.models.registration_request  # noqa: F401 — RegistrationRequest
+import app.models  # noqa: F401
 
 
 @asynccontextmanager
@@ -19,7 +18,7 @@ async def lifespan(app: FastAPI):
     """Create database tables and run seeding on startup."""
     print("--- [STARTUP] Initializing Database ---")
     Base.metadata.create_all(bind=engine)
-    
+
     # --- Auto-Seeding ---
     import os
     import importlib.util
@@ -37,7 +36,7 @@ async def lifespan(app: FastAPI):
                     spec = importlib.util.spec_from_file_location(module_name, os.path.join(seeds_dir, filename))
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
-                    
+
                     if hasattr(module, "seed"):
                         module.seed(db)
         except Exception as e:
@@ -58,7 +57,7 @@ async def lifespan(app: FastAPI):
             db.close()
 
         stock_alert_task = asyncio.create_task(stock_alert_service.run_stock_alert_loop(SessionLocal))
-    
+
     try:
         yield
     finally:
@@ -94,7 +93,7 @@ app = FastAPI(
         "name": "Proprietary",
         "url": "https://myerppilot.com/license",
     },
-    swagger_ui_parameters={"defaultModelsExpandDepth": -1}, # Hide standard Pydantic models in Swagger
+    swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
 
 app.add_middleware(
@@ -105,18 +104,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── API routers ──────────────────────────────────
 app.include_router(api_v1_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/dashboard", include_in_schema=False)
 
 
 @app.get("/", tags=["Health"])
 def health_check():
-    """Root endpoint — health check."""
+    """Root endpoint - health check."""
     return {"status": "ok", "message": "My ERP Pilot is running."}
 
 
-# ── OpenAPI Customization ────────────────────────
 from fastapi.openapi.utils import get_openapi
 
 
@@ -131,20 +128,15 @@ def custom_openapi():
         contact=app.contact,
         license_info=app.license_info,
     )
-    # Define BearerAuth manually
     openapi_schema["components"]["securitySchemes"]["BearerAuth"] = {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
     }
 
-    # Ensure all endpoints that require security can also use BearerAuth
-    # This specifically fixes the issue where Swagger UI doesn't send the token
-    # for manually authorized "BearerAuth" if the endpoint only lists OAuth2.
     for path in openapi_schema.get("paths", {}).values():
         for method in path.values():
             if "security" in method:
-                # Add BearerAuth as an alternative option
                 method["security"].append({"BearerAuth": []})
 
     app.openapi_schema = openapi_schema

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Enum, ForeignKey, DateTime
+from sqlalchemy import Column, String, Enum, ForeignKey, DateTime, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -38,6 +38,14 @@ class ApprovalRequest(Base):
     executed_at = Column(DateTime(timezone=True), nullable=True)
     
     rejection_reason = Column(String, nullable=True)
+
+    # Human-in-the-Loop Low Stock Workflow
+    product_id = Column(Integer, nullable=True, index=True)
+    product_name = Column(String(255), nullable=True)
+    current_qty = Column(Float, nullable=True)
+    min_qty = Column(Float, nullable=True)
+    requested_quantity = Column(Float, nullable=True)
+    decision_reason = Column(String, nullable=True)
 
     # Relationships
     requester = relationship("User", foreign_keys=[requested_by], backref="proposed_actions")

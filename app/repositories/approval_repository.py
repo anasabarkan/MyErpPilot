@@ -38,15 +38,29 @@ def list_requests(
     return items, total
 
 
+def find_pending_for_product(db: Session, product_id: int, action_type: str) -> Optional[ApprovalRequest]:
+    return db.query(ApprovalRequest).filter(
+        ApprovalRequest.product_id == product_id,
+        ApprovalRequest.action_type == action_type,
+        ApprovalRequest.status == ApprovalStatus.pending
+    ).first()
+
 def update_status(
     db: Session, 
     request_obj: ApprovalRequest, 
     new_status: ApprovalStatus, 
-    rejection_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None,
+    decision_reason: Optional[str] = None,
+    requested_quantity: Optional[float] = None
 ) -> ApprovalRequest:
     request_obj.status = new_status
     if rejection_reason is not None:
         request_obj.rejection_reason = rejection_reason
+    if decision_reason is not None:
+        request_obj.decision_reason = decision_reason
+    if requested_quantity is not None:
+        request_obj.requested_quantity = requested_quantity
+        
     db.commit()
     db.refresh(request_obj)
     return request_obj

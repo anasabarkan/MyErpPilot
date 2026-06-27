@@ -75,3 +75,30 @@ def require_permission(permission_name: str):
         return current_user
 
     return permission_dependency
+
+
+def require_any_permission(*permission_names: str):
+    """
+    Dependency factory that grants access when the current user has at least one
+    of the provided permissions.
+    """
+    def permission_dependency(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ) -> User:
+        if not current_user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password change required before accessing the web app.",
+            )
+
+        permissions = set(get_user_permissions_list(db, user_id=current_user.id))
+        if not any(permission_name in permissions for permission_name in permission_names):
+            required = ", ".join(permission_names)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Not enough permissions. Required one of: {required}",
+            )
+        return current_user
+
+    return permission_dependency
