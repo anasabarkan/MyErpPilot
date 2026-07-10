@@ -21,7 +21,7 @@ def client():
         yield object()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4(), is_verified=True, roles=[SimpleNamespace(name="admin")])
 
     # Bypass permission dependency factory wrappers.
     for route in app.routes:
@@ -108,4 +108,5 @@ def test_reject_registration_request(monkeypatch, client: TestClient):
     assert response.status_code == 200
     assert body["status"] == "rejected"
     assert body["rejection_reason"] == "Missing details"
+
 

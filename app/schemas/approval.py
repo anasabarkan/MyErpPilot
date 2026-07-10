@@ -39,8 +39,10 @@ class ApprovalResponse(BaseModel):
         from_attributes = True
 
 class ApproveRequest(BaseModel):
-    requested_quantity: float = Field(..., gt=0, description="Quantity to order")
     decision_reason: Optional[str] = Field(None, description="Optional reason for approval")
+
+class ExecuteRequest(BaseModel):
+    requested_quantity: Optional[float] = Field(None, gt=0, description="Quantity to order for low-stock execution")
 
 class RejectRequest(BaseModel):
     decision_reason: Optional[str] = Field(None, description="Optional reason for rejection")

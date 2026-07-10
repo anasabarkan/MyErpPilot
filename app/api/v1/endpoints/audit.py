@@ -2,16 +2,17 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import require_manager_or_admin_user, require_permission
 from app.database.session import get_db
 from app.models.user import User
 from app.repositories import audit_repository
 from app.schemas.audit import AuditLogListResponse, AuditLogResponse
 
 router = APIRouter()
+
 
 @router.get(
     "/logs",
@@ -30,11 +31,11 @@ def get_audit_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager_or_admin_user),
 ):
     """
     List audit logs with optional filtering.
-    Requires permission: 'view_audit_logs'.
+    Requires a manager/admin role and 'view_audit_logs' permission.
     """
     items, total = audit_repository.list_logs(
         db,
@@ -60,11 +61,11 @@ def get_audit_logs(
 def get_audit_log(
     log_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager_or_admin_user),
 ):
     """
     Retrieve a specific audit log by its ID.
-    Requires permission: 'view_audit_logs'.
+    Requires a manager/admin role and 'view_audit_logs' permission.
     """
     log = audit_repository.get_log_by_id(db, log_id)
     if not log:

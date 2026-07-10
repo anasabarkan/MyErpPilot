@@ -46,7 +46,7 @@ class AIIntentClassifier:
         "best product next",
     )
     _DASHBOARD_KEYWORDS = ("dashboard", "kpi", "overview", "board view")
-    _SUMMARY_KEYWORDS = ("summary", "summarize", "recap", "overview of")
+    _SUMMARY_KEYWORDS = ("summary", "summarize", "resume", "résumé", "recap", "overview of")
 
     _HANDLER_KEYWORDS: dict[str, tuple[str, ...]] = {
         "predict_best_product": (
@@ -62,6 +62,9 @@ class AIIntentClassifier:
         ),
         "get_top_customers": (
             "top customers",
+            "meilleurs clients",
+            "top clients",
+            "أفضل العملاء",
             "best customers",
             "biggest customers",
             "customer sales",
@@ -69,6 +72,9 @@ class AIIntentClassifier:
         ),
         "get_top_products": (
             "best selling products",
+            "meilleurs produits",
+            "produits les plus vendus",
+            "أفضل المنتجات",
             "selling products",
             "sold products",
             "top products",
@@ -77,9 +83,9 @@ class AIIntentClassifier:
             "product sales",
             "sales by product",
         ),
-        "get_sales_summary": ("sales summary", "revenue summary", "sales overview", "sales chart", "sales graph"),
+        "get_sales_summary": ("sales summary", "resume des ventes", "résumé des ventes", "revenue summary", "sales overview", "sales chart", "sales graph"),
         "get_invoice_status_summary": ("invoice status", "invoices status", "invoice payment status"),
-        "get_recent_orders": ("recent orders", "latest orders", "last orders"),
+        "get_recent_orders": ("recent orders", "commandes recentes", "commandes récentes", "latest orders", "last orders"),
     }
     _HANDLER_PATTERNS: dict[str, tuple[str, ...]] = {
         "predict_best_product": (

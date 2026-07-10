@@ -27,7 +27,7 @@ def client():
         yield _FakeSession()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4(), is_verified=True, roles=[SimpleNamespace(name="admin")])
 
     for route in app.routes:
         dependant = getattr(route, "dependant", None)
@@ -115,3 +115,4 @@ def test_audit_log_user_display_name_property_fallback_order():
 
     log.user = None
     assert log.user_display_name == "System"
+

@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import require_admin_user, require_permission
 from app.database.session import get_db
 from app.models.registration_request import RegistrationRequestStatus
 from app.models.user import User
@@ -31,7 +31,7 @@ def list_registration_requests(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     items, total = registration_request_service.list_registration_requests(
         db,
@@ -51,7 +51,7 @@ def approve_registration_request(
     request_id: UUID,
     payload: RegistrationRequestApprove,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     return registration_request_service.approve_registration_request(
         db,
@@ -70,7 +70,7 @@ def reject_registration_request(
     request_id: UUID,
     payload: RegistrationRequestReject,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     return registration_request_service.reject_registration_request(
         db,

@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_any_permission, require_permission
+from app.core.dependencies import require_analyst_or_admin_user, require_any_permission, require_permission
 from app.database.session import get_db
 from app.integrations.odoo import OdooAuthenticationError, OdooConnectionError, OdooRequestError
 from app.models.user import User
@@ -21,6 +21,7 @@ from app.schemas.data_source import (
     DataSourceTestResponse,
     DataSourceUpdate,
 )
+from app.services import audit_service
 from app.services import data_source_service as service
 
 router = APIRouter()
@@ -43,6 +44,7 @@ def _raise_http_from_odoo_error(exc: Exception) -> None:
 def test_connection_with_payload(
     *,
     payload: DataSourceConnectionTestRequest,
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Validate Odoo credentials without persisting a data source.
@@ -62,10 +64,10 @@ def list_data_sources(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
-    List all Odoo data sources (admin-managed/global scope).
+    List all Odoo data sources.
     """
     return service.list_data_sources(db, skip=skip, limit=limit)
 
@@ -77,7 +79,7 @@ def list_data_sources(
 )
 def get_active_data_source(
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Retrieve the globally active Odoo data source.
@@ -95,15 +97,25 @@ def create_data_source(
     *,
     db: Session = Depends(get_db),
     data_source_in: DataSourceCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Create and store a new Odoo data source.
     """
     try:
-        return service.create_data_source(db, data_source_in, current_user.id)
+        data_source = service.create_data_source(db, data_source_in, current_user.id)
     except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
         _raise_http_from_odoo_error(exc)
+
+    audit_service.log_sensitive_crud_event(
+        db,
+        action="create",
+        entity_type="data_source",
+        entity_id=str(data_source.id),
+        user_id=current_user.id,
+        metadata={"name": data_source.name},
+    )
+    return data_source
 
 
 @router.get(
@@ -114,7 +126,7 @@ def create_data_source(
 def get_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Get a data source by id.
@@ -135,7 +147,7 @@ def update_data_source(
     *,
     db: Session = Depends(get_db),
     data_source_in: DataSourceUpdate,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Update an existing Odoo data source.
@@ -145,9 +157,19 @@ def update_data_source(
         raise HTTPException(status_code=404, detail="Data source not found.")
 
     try:
-        return service.update_data_source(db, data_source, data_source_in)
+        updated_source = service.update_data_source(db, data_source, data_source_in)
     except Exception as exc:  # noqa: BLE001 - converted to sanitized HTTP errors
         _raise_http_from_odoo_error(exc)
+
+    audit_service.log_sensitive_crud_event(
+        db,
+        action="update",
+        entity_type="data_source",
+        entity_id=str(updated_source.id),
+        user_id=current_user.id,
+        metadata={"name": updated_source.name},
+    )
+    return updated_source
 
 
 @router.delete(
@@ -159,14 +181,27 @@ def update_data_source(
 def delete_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> None:
     """
     Delete an Odoo data source.
     """
+    data_source = service.get_data_source_or_none(db, id)
+    if not data_source:
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
     deleted = service.delete_data_source(db, id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Data source not found.")
+
+    audit_service.log_sensitive_crud_event(
+        db,
+        action="delete",
+        entity_type="data_source",
+        entity_id=str(id),
+        user_id=current_user.id,
+        metadata={"name": data_source.name},
+    )
     return None
 
 
@@ -178,7 +213,7 @@ def delete_data_source(
 def test_saved_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Validate a saved Odoo source and refresh its model cache.
@@ -202,7 +237,7 @@ def get_data_source_models(
     id: UUID,
     refresh: bool = False,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Return models for a saved Odoo source (cached unless refresh=true).
@@ -227,7 +262,7 @@ def get_data_source_models(
 def activate_data_source(
     id: UUID,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_analyst_or_admin_user),
 ) -> Any:
     """
     Mark a source as globally active and deactivate all others.
@@ -236,4 +271,13 @@ def activate_data_source(
     if not data_source:
         raise HTTPException(status_code=404, detail="Data source not found.")
 
-    return service.activate_data_source(db, data_source)
+    activated_source = service.activate_data_source(db, data_source)
+    audit_service.log_sensitive_crud_event(
+        db,
+        action="activate",
+        entity_type="data_source",
+        entity_id=str(activated_source.id),
+        user_id=current_user.id,
+        metadata={"name": activated_source.name},
+    )
+    return activated_source

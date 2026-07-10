@@ -22,7 +22,7 @@ def client():
         yield object()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4(), is_verified=True, roles=[SimpleNamespace(name="admin")])
 
     for route in app.routes:
         dependant = getattr(route, "dependant", None)
@@ -282,3 +282,4 @@ def test_dashboard_product_states_missing_active_source(monkeypatch, client: Tes
     response = client.get("/api/v1/dashboard/product-states")
 
     assert response.status_code == 404
+

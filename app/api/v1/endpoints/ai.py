@@ -71,6 +71,7 @@ def query_ai(
                     "execution_ms": result.meta.execution_ms,
                     "count": result.meta.count,
                     "generated_at": result.meta.generated_at.isoformat(),
+                    "detected_language": result.meta.detected_language,
                 },
                 "provider": result.meta.provider,
                 "model": result.meta.model,
@@ -78,6 +79,7 @@ def query_ai(
                 "generated_sql": result.meta.generated_sql,
                 "row_count": result.meta.row_count,
                 "execution_ms": result.meta.execution_ms,
+                "detected_language": result.meta.detected_language,
             }
             if result.visualization:
                 metadata_payload["visualization"] = result.visualization.model_dump(mode="json")
@@ -187,6 +189,7 @@ def query_ai(
             "generated_sql": result.meta.generated_sql,
             "row_count": result.meta.row_count,
             "execution_ms": result.meta.execution_ms,
+            "detected_language": result.meta.detected_language,
         },
         ip_address=ip_address,
         user_agent=user_agent,

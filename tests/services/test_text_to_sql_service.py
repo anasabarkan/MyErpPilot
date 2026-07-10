@@ -27,8 +27,12 @@ class _FakeProviderChain:
     def __init__(self, draft, fallback_used=False):
         self.draft = draft
         self.fallback_used = fallback_used
+        self.last_system_prompt = None
+        self.last_user_prompt = None
 
     def generate(self, *, system_prompt: str, user_prompt: str):
+        self.last_system_prompt = system_prompt
+        self.last_user_prompt = user_prompt
         return self.draft, self.fallback_used
 
 
@@ -68,8 +72,7 @@ def _service(provider_chain):
 
 
 def test_text_to_sql_returns_compatible_response():
-    service = _service(
-        _FakeProviderChain(
+    provider_chain = _FakeProviderChain(
             TextToSQLDraft(
                 can_answer=True,
                 sql="SELECT id, name FROM sale_order LIMIT 5",
@@ -79,7 +82,7 @@ def test_text_to_sql_returns_compatible_response():
                 model="gpt-5.4-mini",
             )
         )
-    )
+    service = _service(provider_chain)
 
     result = service.query(question="recent orders", user_id=uuid4())
 
@@ -88,6 +91,9 @@ def test_text_to_sql_returns_compatible_response():
     assert result.meta.provider == "openai"
     assert result.meta.generated_sql == "SELECT id, name FROM sale_order LIMIT 5"
     assert result.meta.row_count == 1
+    assert result.meta.detected_language == "en"
+    assert provider_chain.last_user_prompt is not None
+    assert "Response language: English." in provider_chain.last_user_prompt
 
 
 def test_text_to_sql_records_gemini_fallback():
@@ -126,3 +132,23 @@ def test_text_to_sql_provider_failure_is_controlled():
 
     with pytest.raises(Exception, match="provider generation failed"):
         service.query(question="recent orders", user_id=uuid4())
+
+
+def test_text_to_sql_prompt_uses_detected_french_language():
+    provider_chain = _FakeProviderChain(
+        TextToSQLDraft(
+            can_answer=True,
+            sql="SELECT id, name FROM sale_order LIMIT 5",
+            summary="Commandes recentes.",
+            assumptions=[],
+            provider="openai",
+            model="gpt-5.4-mini",
+        )
+    )
+    service = _service(provider_chain)
+
+    result = service.query(question="Quelles sont les commandes recentes ?", user_id=uuid4())
+
+    assert result.meta.detected_language == "fr"
+    assert provider_chain.last_user_prompt is not None
+    assert "Response language: French." in provider_chain.last_user_prompt

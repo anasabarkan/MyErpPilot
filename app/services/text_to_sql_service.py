@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.schemas.ai import AIQueryIntent, AIQueryResponse
 from app.services.ai_response_builder import build_ai_response
 from app.services.ai_visualization_service import build_visualization_spec
+from app.services.language_service import SupportedLanguage, detect_supported_language, language_name
 from app.services.llm_provider_service import LLMProviderError, TextToSQLProviderChain
 from app.services.odoo_query_service import OdooQueryExecutionError, OdooQueryService
 from app.services.sql_execution_service import SQLExecutionError, SQLExecutionService
@@ -19,6 +20,20 @@ from app.services.sql_validation_service import SQLValidationError, SQLValidatio
 from app.services.text_to_sql_schema_service import build_schema_prompt
 
 
+_TEXT_TO_SQL_SUGGESTED_ACTIONS: dict[SupportedLanguage, list[str]] = {
+    "en": [
+        "Review the generated SQL in debug mode before using results for decisions.",
+        "Refine the question with a date range or business filter for a narrower answer.",
+    ],
+    "fr": [
+        "Verifiez le SQL genere en mode debug avant d'utiliser les resultats pour une decision.",
+        "Precisez la question avec une periode ou un filtre metier pour obtenir une reponse plus ciblee.",
+    ],
+    "ar": [
+        "راجع SQL الذي تم توليده في وضع التصحيح قبل استخدام النتائج لاتخاذ قرار.",
+        "حدد السؤال بفترة زمنية أو مرشح عملي للحصول على إجابة أدق.",
+    ],
+}
 class TextToSQLCannotAnswerError(RuntimeError):
     """Raised when the LLM says the available schema cannot answer the question."""
 
@@ -38,10 +53,21 @@ class TextToSQLService:
         self.executor = executor or SQLExecutionService()
         self.odoo_query_service = OdooQueryService(db)
 
-    def query(self, *, question: str, user_id: UUID) -> AIQueryResponse:
+    def query(
+        self,
+        *,
+        question: str,
+        user_id: UUID,
+        detected_language: SupportedLanguage | None = None,
+    ) -> AIQueryResponse:
+        response_language = detected_language or detect_supported_language(question)
         runtime = self.odoo_query_service.build_runtime_context()
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(question=question, database_name=runtime.data_source.database_name)
+        user_prompt = self._build_user_prompt(
+            question=question,
+            database_name=runtime.data_source.database_name,
+            detected_language=response_language,
+        )
 
         try:
             draft, fallback_used = self.provider_chain.generate(
@@ -80,11 +106,9 @@ class TextToSQLService:
             handler="text_to_sql",
             summary=summary,
             data=rows,
-            suggested_actions=[
-                "Review the generated SQL in debug mode before using results for decisions.",
-                "Refine the question with a date range or business filter for a narrower answer.",
-            ],
+            suggested_actions=_TEXT_TO_SQL_SUGGESTED_ACTIONS[response_language],
             visualization=visualization,
+            detected_language=response_language,
             meta_overrides={
                 "provider": draft.provider,
                 "model": draft.model,
@@ -107,10 +131,11 @@ class TextToSQLService:
         )
 
     @staticmethod
-    def _build_user_prompt(*, question: str, database_name: str) -> str:
+    def _build_user_prompt(*, question: str, database_name: str, detected_language: SupportedLanguage) -> str:
         return (
             f"Database: {database_name}\n"
             f"Max rows: {settings.TEXT2SQL_MAX_ROWS}\n"
             f"Business question: {question.strip()}\n"
-            "Generate a safe SQL query and a concise business summary."
+            f"Response language: {language_name(detected_language)}.\n"
+            "Generate a safe SQL query and a concise business summary in the response language."
         )

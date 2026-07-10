@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.core.config import settings
+from app.services.language_service import SupportedLanguage
 
 
 class LLMProviderError(RuntimeError):
@@ -86,7 +87,13 @@ class OpenAITextToSQLProvider:
         payload = _parse_payload(content)
         return _draft_from_payload(payload, provider=self.provider_name, model=self.model)
 
-    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def generate_general(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        detected_language: SupportedLanguage | None = None,
+    ) -> dict[str, Any]:
         if not settings.OPENAI_API_KEY:
             raise LLMProviderError("OpenAI API key is not configured.")
         try:
@@ -163,7 +170,13 @@ class GeminiTextToSQLProvider:
         payload = _parse_payload(content)
         return _draft_from_payload(payload, provider=self.provider_name, model=self.model)
 
-    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def generate_general(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        detected_language: SupportedLanguage | None = None,
+    ) -> dict[str, Any]:
         if not settings.GEMINI_API_KEY:
             raise LLMProviderError("Gemini API key is not configured.")
         try:
@@ -212,7 +225,13 @@ class TextToSQLProviderChain:
                 failures.append(f"{provider.provider_name}: {exc}")
         raise LLMProviderError("All Text-to-SQL providers failed.")
 
-    def generate_general(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def generate_general(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        detected_language: SupportedLanguage | None = None,
+    ) -> dict[str, Any]:
         failures: list[str] = []
         for provider in self.providers:
             try:
@@ -220,19 +239,30 @@ class TextToSQLProviderChain:
                     continue
                 if provider.provider_name == "gemini" and not settings.GEMINI_API_KEY:
                     continue
-                return provider.generate_general(system_prompt=system_prompt, user_prompt=user_prompt)
+                return provider.generate_general(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    detected_language=detected_language,
+                )
             except Exception as exc:
                 failures.append(f"{provider.provider_name}: {exc}")
         
-        return {
-            "summary": "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?",
-            "suggested_actions": [
-                "Show top products",
-                "List recent orders",
-                "Show sales summary"
-            ]
+        language = detected_language or "en"
+        fallbacks: dict[SupportedLanguage, dict[str, Any]] = {
+            "en": {
+                "summary": "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?",
+                "suggested_actions": ["Show top products", "List recent orders", "Show sales summary"],
+            },
+            "fr": {
+                "summary": "Bonjour ! Je suis MyERPPilot AI, votre copilote IA d'entreprise securise. Comment puis-je vous aider avec vos donnees ERP, vos analyses ou vos validations aujourd'hui ?",
+                "suggested_actions": ["Afficher les meilleurs produits", "Lister les commandes recentes", "Afficher le resume des ventes"],
+            },
+            "ar": {
+                "summary": "مرحبا! أنا MyERPPilot AI، مساعدك الذكي الآمن للمؤسسة. كيف يمكنني مساعدتك اليوم في بيانات ERP أو التحليلات أو موافقات سير العمل؟",
+                "suggested_actions": ["اعرض أفضل المنتجات", "اعرض أحدث الطلبات", "اعرض ملخص المبيعات"],
+            },
         }
-
+        return fallbacks.get(language, fallbacks["en"])
 
 def any_provider_configured() -> bool:
     return bool(settings.OPENAI_API_KEY or settings.GEMINI_API_KEY)

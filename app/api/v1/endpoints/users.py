@@ -5,7 +5,7 @@ User management endpoints.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user, require_admin_user, require_permission
 from app.database.session import get_db
 from app.models.user import User
 from app.schemas.user import (
@@ -21,13 +21,13 @@ from app.services import role_service, user_service
 router = APIRouter()
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("/", response_model=list[UserResponse], dependencies=[Depends(require_permission("view_users"))])
 def list_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("view_users")),
+    current_user: User = Depends(require_admin_user),
 ):
     """
-    List all users. Requires 'view_users' permission.
+    List all users. Requires an admin role and 'view_users' permission.
     """
     return user_service.list_users(db)
 
@@ -78,14 +78,14 @@ def update_my_password(
     )
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_permission("view_users"))])
 def get_user(
     user_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("view_users")),
+    current_user: User = Depends(require_admin_user),
 ):
     """
-    Get user by ID. Requires 'view_users' permission.
+    Get user by ID. Requires an admin role and 'view_users' permission.
     """
     user = user_service.get_user_by_id(db, user_id)
     if not user:
@@ -96,15 +96,15 @@ def get_user(
     return user
 
 
-@router.patch("/{user_id}", response_model=UserResponse)
+@router.patch("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_permission("manage_users"))])
 def update_user(
     user_id: str,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("manage_users")),
+    current_user: User = Depends(require_admin_user),
 ):
     """
-    Update user fields. Requires 'manage_users' permission.
+    Update user fields. Requires an admin role and 'manage_users' permission.
     """
     user = user_service.get_user_by_id(db, user_id)
     if not user:
@@ -153,15 +153,15 @@ def update_user(
     return updated_user
 
 
-@router.patch("/{user_id}/status", response_model=UserResponse)
+@router.patch("/{user_id}/status", response_model=UserResponse, dependencies=[Depends(require_permission("manage_users"))])
 def set_user_status(
     user_id: str,
     payload: UserStatusUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("manage_users")),
+    current_user: User = Depends(require_admin_user),
 ):
     """
-    Activate or deactivate a user account. Requires 'manage_users' permission.
+    Activate or deactivate a user account. Requires an admin role and 'manage_users' permission.
     """
     user = user_service.get_user_by_id(db, user_id)
     if not user:
@@ -184,14 +184,14 @@ def set_user_status(
     )
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("manage_users"))])
 def create_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("manage_users")),
+    current_user: User = Depends(require_admin_user),
 ):
     """
-    Create a new user. Requires 'manage_users' permission.
+    Create a new user. Requires an admin role and 'manage_users' permission.
     """
     user = user_service.get_user_by_email(db, user_in.email)
     if user:

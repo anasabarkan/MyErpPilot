@@ -134,6 +134,23 @@ def test_orchestrator_routes_top_customers_and_parses_limit():
     assert result.data[0]["customer_name"] == "Agrolait"
 
 
+
+
+def test_orchestrator_localizes_french_deterministic_analytics_query():
+    service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
+    fake_odoo = _FakeOdooQueryService()
+    service.odoo_query_service = fake_odoo  # type: ignore[assignment]
+
+    result = service.query(question="Quels sont mes meilleurs clients ?", user_id=uuid4())
+
+    assert result.intent == AIQueryIntent.analytics_query
+    assert result.handler == "get_top_customers"
+    assert result.meta.detected_language == "fr"
+    assert "Voici" in result.summary
+    assert "clients" in result.summary
+    assert result.suggested_actions
+    assert "Verifiez" in result.suggested_actions[1]
+
 def test_orchestrator_returns_summary_intent_for_sales_summary():
     service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
     service.odoo_query_service = _FakeOdooQueryService()  # type: ignore[assignment]
@@ -317,14 +334,14 @@ def test_orchestrator_routes_general_query_when_handler_not_found(monkeypatch):
     class _FakeTextToSQLService:
         def __init__(self) -> None:
             class _FakeProviderChain:
-                def generate_general(self, *, system_prompt: str, user_prompt: str):
+                def generate_general(self, *, system_prompt: str, user_prompt: str, detected_language=None):
                     return {
                         "summary": "Hello there! I am MyERPPilot AI.",
                         "suggested_actions": ["Show top products"]
                     }
             self.provider_chain = _FakeProviderChain()
             
-        def query(self, *, question: str, user_id: uuid4):
+        def query(self, *, question: str, user_id: uuid4, detected_language=None):
             from app.services.text_to_sql_service import TextToSQLCannotAnswerError
             raise TextToSQLCannotAnswerError("Cannot answer this question")
             
@@ -350,14 +367,14 @@ def test_orchestrator_fallback_to_general_query_on_cannot_answer_error(monkeypat
     class _FakeTextToSQLService:
         def __init__(self) -> None:
             class _FakeProviderChain:
-                def generate_general(self, *, system_prompt: str, user_prompt: str):
+                def generate_general(self, *, system_prompt: str, user_prompt: str, detected_language=None):
                     return {
                         "summary": "This is a general reply.",
                         "suggested_actions": ["Show top products"]
                     }
             self.provider_chain = _FakeProviderChain()
             
-        def query(self, *, question: str, user_id: uuid4):
+        def query(self, *, question: str, user_id: uuid4, detected_language=None):
             from app.services.text_to_sql_service import TextToSQLCannotAnswerError
             raise TextToSQLCannotAnswerError("Cannot answer this question")
             
@@ -369,3 +386,34 @@ def test_orchestrator_fallback_to_general_query_on_cannot_answer_error(monkeypat
     assert result.handler == "general_knowledge"
     assert result.summary == "This is a general reply."
 
+
+
+def test_orchestrator_returns_arabic_general_fallback(monkeypatch):
+    from app.core.config import settings
+    from app.services import ai_orchestrator_service as orchestrator_module
+
+    monkeypatch.setattr(settings, "TEXT2SQL_ENABLED", True)
+    monkeypatch.setattr(orchestrator_module, "any_provider_configured", lambda: True)
+
+    class _FailingTextToSQLService:
+        class _FailingProviderChain:
+            def generate_general(self, *, system_prompt: str, user_prompt: str, detected_language=None):
+                raise RuntimeError("provider unavailable")
+
+        provider_chain = _FailingProviderChain()
+
+        def query(self, *, question: str, user_id, detected_language=None):
+            from app.services.text_to_sql_service import TextToSQLCannotAnswerError
+            raise TextToSQLCannotAnswerError("Cannot answer this question")
+
+    service = AIOrchestratorService(db=object())  # type: ignore[arg-type]
+    service.odoo_query_service = _FakeOdooQueryService()  # type: ignore[assignment]
+    service.text_to_sql_service = _FailingTextToSQLService()  # type: ignore[assignment]
+
+    result = service.query(question="مرحبا", user_id=uuid4())
+
+    assert result.intent == AIQueryIntent.general_query
+    assert result.handler == "general_knowledge"
+    assert result.meta.detected_language == "ar"
+    assert "مرحبا" in result.summary
+    assert result.suggested_actions[0].startswith("اعرض")

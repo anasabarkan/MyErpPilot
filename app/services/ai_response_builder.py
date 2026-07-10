@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.schemas.ai import AIQueryIntent, AIQueryMeta, AIQueryResponse, AIPredictionResult, AIVisualizationSpec
+from app.services.language_service import SupportedLanguage
 
 
 def build_ai_response(
@@ -22,12 +23,16 @@ def build_ai_response(
     meta_overrides: dict[str, Any] | None = None,
     visualization: AIVisualizationSpec | None = None,
     prediction: AIPredictionResult | None = None,
+    detected_language: SupportedLanguage | None = None,
 ) -> AIQueryResponse:
     normalized_data = _normalize_data_payload(data)
     meta_payload = {
         "count": _compute_result_count(normalized_data),
         "generated_at": datetime.now(timezone.utc),
     }
+    if detected_language:
+        meta_payload["detected_language"] = detected_language
+
     if meta_overrides:
         meta_payload.update(meta_overrides)
 

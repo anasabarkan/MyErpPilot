@@ -6,6 +6,7 @@ import pytest
 from app.models.approval import ApprovalStatus
 from app.models.product_inventory_state import ProductInventoryStatus
 from app.services import approval_service
+from app.schemas.approval import ApproveRequest
 from app.services.purchase_order_service import MockPurchaseOrderService
 
 
@@ -49,7 +50,7 @@ def mock_db():
     return MockDB()
 
 
-def test_approve_low_stock_creates_po(monkeypatch, mock_db):
+def test_approve_low_stock_only_marks_request_approved(monkeypatch, mock_db):
     class MockRequest:
         id = uuid4()
         status = ApprovalStatus.pending
@@ -64,27 +65,93 @@ def test_approve_low_stock_creates_po(monkeypatch, mock_db):
     import app.repositories.approval_repository as repo
     monkeypatch.setattr(repo, "get_request_by_id", lambda db, rid: mock_req)
     monkeypatch.setattr(repo, "update_status", lambda db, req, status, **kwargs: setattr(req, "status", status))
-    monkeypatch.setattr(repo, "assign_validator", lambda db, req, validator_id, validated_at: None)
-    monkeypatch.setattr(repo, "assign_executor", lambda db, req, executor_id, executed_at: None)
-    monkeypatch.setattr("app.services.purchase_order_service.get_purchase_order_service", lambda db: MockPurchaseOrderService())
+    monkeypatch.setattr(repo, "assign_validator", lambda db, req, validator_id, validated_at: setattr(req, "validated_by", validator_id))
 
     import app.services.audit_service as audit
     monkeypatch.setattr(audit, "log_approval_event", lambda *args, **kwargs: None)
-    monkeypatch.setattr(audit, "log_execution_event", lambda *args, **kwargs: None)
 
-    with pytest.raises(ValueError, match="Requested quantity must be provided and greater than 0"):
-        approval_service.approve_request(mock_db, mock_req.id, uuid4(), requested_quantity=0)
-
+    validator_id = uuid4()
     result = approval_service.approve_request(
         mock_db,
         mock_req.id,
-        uuid4(),
-        requested_quantity=50.0,
+        validator_id,
         decision_reason="Approved based on forecast",
+    )
+
+    assert result.status == ApprovalStatus.approved
+    assert result.validated_by == validator_id
+    assert result.decision_reason == "Approved based on forecast"
+    assert result.requested_quantity is None
+
+
+def test_execute_low_stock_requires_operator_quantity(monkeypatch, mock_db):
+    class MockRequest:
+        id = uuid4()
+        status = ApprovalStatus.approved
+        action_type = "low_stock_forecast_alert"
+        product_id = 123
+        requested_quantity = None
+
+    mock_req = MockRequest()
+
+    import app.repositories.approval_repository as repo
+    monkeypatch.setattr(repo, "get_request_by_id", lambda db, rid: mock_req)
+
+    with pytest.raises(ValueError, match="Requested quantity must be provided and greater than 0"):
+        approval_service.execute_request(mock_db, mock_req.id, uuid4())
+
+
+def test_approve_request_schema_does_not_expose_requested_quantity():
+    payload = ApproveRequest.model_validate({"decision_reason": "ok", "requested_quantity": 50})
+
+    assert payload.decision_reason == "ok"
+    assert not hasattr(payload, "requested_quantity")
+
+
+def test_execute_low_stock_creates_po_with_operator_quantity(monkeypatch, mock_db):
+    class MockRequest:
+        id = uuid4()
+        status = ApprovalStatus.approved
+        action_type = "low_stock_forecast_alert"
+        product_id = 123
+        product_name = "Test Product"
+        requested_quantity = None
+        executed_by = None
+
+    mock_req = MockRequest()
+
+    def update_status(_db, req, status, **kwargs):
+        req.status = status
+        if "requested_quantity" in kwargs:
+            req.requested_quantity = kwargs["requested_quantity"]
+        return req
+
+    def assign_executor(_db, req, executor_id, executed_at):
+        req.executed_by = executor_id
+        req.executed_at = executed_at
+        return req
+
+    import app.repositories.approval_repository as repo
+    monkeypatch.setattr(repo, "get_request_by_id", lambda db, rid: mock_req)
+    monkeypatch.setattr(repo, "update_status", update_status)
+    monkeypatch.setattr(repo, "assign_executor", assign_executor)
+    monkeypatch.setattr("app.services.purchase_order_service.get_purchase_order_service", lambda db: MockPurchaseOrderService())
+    monkeypatch.setattr("app.services.notification_service.mark_related_alerts_as_read", lambda *args, **kwargs: 0)
+
+    import app.services.audit_service as audit
+    monkeypatch.setattr(audit, "log_execution_event", lambda *args, **kwargs: None)
+
+    executor_id = uuid4()
+    result = approval_service.execute_request(
+        mock_db,
+        mock_req.id,
+        executor_id,
+        requested_quantity=50.0,
     )
 
     assert result.status == ApprovalStatus.executed
     assert result.requested_quantity == 50.0
+    assert result.executed_by == executor_id
 
 
 def test_reject_low_stock(monkeypatch, mock_db):

@@ -79,6 +79,7 @@ class AIQueryRequest(BaseModel):
 class AIQueryMeta(BaseModel):
     count: int = 0
     generated_at: datetime
+    detected_language: str | None = None
     provider: str | None = None
     model: str | None = None
     fallback_used: bool | None = None

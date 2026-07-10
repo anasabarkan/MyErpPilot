@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user, require_admin_user, require_permission
 from app.database.session import get_db
 from app.models.user import User
 from app.repositories import role_repository
@@ -23,11 +23,11 @@ router = APIRouter()
 def create_role(
     role_in: RoleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """
     Create a new role.
-    Requires permission: 'manage_roles'.
+    Requires an admin role and permission: 'manage_roles'.
     """
     return role_repository.create_role(db, name=role_in.name, description=role_in.description)
 
@@ -40,11 +40,11 @@ def create_role(
 )
 def get_roles(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """
     Get all available roles.
-    Requires permission: 'manage_users'.
+    Requires an admin role and permission: 'manage_users'.
     """
     return role_service.list_roles(db)
 
@@ -58,11 +58,11 @@ def assign_role(
     user_id: UUID,
     payload: AssignRoleToUser,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """
     Assign a role to a user.
-    Requires permission: 'manage_users'.
+    Requires an admin role and permission: 'manage_users'.
     """
     role_service.assign_role_to_user(db, user_id=user_id, role_name=payload.role_name)
     return {"message": f"Role '{payload.role_name}' assigned to user {user_id}"}
@@ -77,10 +77,10 @@ def assign_role(
 def get_usr_roles(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """
     Get roles belonging to a user.
-    Requires permission: 'manage_users'.
+    Requires an admin role and permission: 'manage_users'.
     """
     return role_service.get_user_roles(db, user_id=user_id)

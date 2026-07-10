@@ -43,7 +43,7 @@ def client():
         yield _FakeSession()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4(), is_verified=True, roles=[SimpleNamespace(name="admin")])
 
     for route in app.routes:
         dependant = getattr(route, "dependant", None)
@@ -74,6 +74,7 @@ def test_ai_query_success(monkeypatch, client: TestClient):
                 meta={
                     "count": 1,
                     "generated_at": datetime.now(timezone.utc),
+                    "detected_language": "en",
                 },
             )
 
@@ -86,6 +87,7 @@ def test_ai_query_success(monkeypatch, client: TestClient):
     assert body["intent"] == "analytics_query"
     assert body["handler"] == "get_top_customers"
     assert body["data"][0]["customer_name"] == "Agrolait"
+    assert body["meta"]["detected_language"] == "en"
 
 
 def test_ai_query_no_active_source(monkeypatch, client: TestClient):

@@ -1,6 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import desc, nullslast
 from sqlalchemy.orm import Session
 
 from app.models.approval import ApprovalRequest, ApprovalStatus
@@ -33,7 +34,14 @@ def list_requests(
         query = query.filter(ApprovalRequest.requested_by == user_id)
 
     total = query.count()
-    items = query.order_by(ApprovalRequest.created_at.desc()).offset(skip).limit(limit).all()
+    if status == ApprovalStatus.executed:
+        query = query.order_by(
+            nullslast(desc(ApprovalRequest.executed_at)),
+            ApprovalRequest.created_at.desc(),
+        )
+    else:
+        query = query.order_by(ApprovalRequest.created_at.desc())
+    items = query.offset(skip).limit(limit).all()
 
     return items, total
 

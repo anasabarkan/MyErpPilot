@@ -79,7 +79,6 @@ def approve_request(
     db: Session,
     request_id: UUID,
     validator_id: UUID,
-    requested_quantity: Optional[float] = None,
     decision_reason: Optional[str] = None,
 ) -> ApprovalRequest:
     request_obj = approval_repository.get_request_by_id(db, request_id)
@@ -88,14 +87,6 @@ def approve_request(
 
     ApprovalWorkflow.validate_transition(request_obj.status, ApprovalStatus.approved)
 
-    if request_obj.action_type == "low_stock_forecast_alert":
-        if requested_quantity is None or requested_quantity <= 0:
-            raise ValueError("Requested quantity must be provided and greater than 0")
-        if request_obj.product_id is None:
-            raise ValueError("Low stock approval request is missing its product identifier")
-
-    if requested_quantity is not None:
-        request_obj.requested_quantity = requested_quantity
     if decision_reason is not None:
         request_obj.decision_reason = decision_reason
 
@@ -104,7 +95,6 @@ def approve_request(
         request_obj,
         ApprovalStatus.approved,
         decision_reason=decision_reason,
-        requested_quantity=requested_quantity,
     )
     approval_repository.assign_validator(
         db,
@@ -126,46 +116,6 @@ def approve_request(
         message=decision_reason,
     )
     logger.info("Audit: User %s approved ApprovalRequest %s", validator_id, request_id)
-
-    if request_obj.action_type == "low_stock_forecast_alert":
-        from app.services import notification_service
-        from app.services.purchase_order_service import get_purchase_order_service
-
-        try:
-            po_service = get_purchase_order_service(db)
-            result = po_service.create_purchase_order(
-                product_id=request_obj.product_id,
-                quantity=requested_quantity,
-            )
-            approval_repository.update_status(db, request_obj, ApprovalStatus.executed)
-            approval_repository.assign_executor(
-                db,
-                request_obj,
-                executor_id=validator_id,
-                executed_at=datetime.now(timezone.utc),
-            )
-            notification_service.mark_related_alerts_as_read(db, str(request_id))
-            stock_message = "and updated stock in Odoo" if result.get("stock_updated") else "but stock is still pending in Odoo"
-            audit_service.log_execution_event(
-                db,
-                action="execute_request",
-                approval_id=str(request_id),
-                user_id=validator_id,
-                status="success",
-                message=f"Created PO {result.get('name')} for {requested_quantity} units {stock_message}",
-                metadata=result,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to create purchase order: %s", exc)
-            approval_repository.update_status(db, request_obj, ApprovalStatus.failed)
-            audit_service.log_execution_event(
-                db,
-                action="execute_request",
-                approval_id=str(request_id),
-                user_id=validator_id,
-                status="failed",
-                message=f"Failed to create purchase order: {exc}",
-            )
 
     return request_obj
 
@@ -219,6 +169,7 @@ def execute_request(
     db: Session,
     request_id: UUID,
     executor_id: UUID,
+    requested_quantity: Optional[float] = None,
 ) -> ApprovalRequest:
     request_obj = approval_repository.get_request_by_id(db, request_id)
     if not request_obj:
@@ -226,13 +177,71 @@ def execute_request(
 
     ApprovalWorkflow.validate_transition(request_obj.status, ApprovalStatus.executed)
 
-    try:
-        final_status = ApprovalStatus.executed
-    except Exception as exc:  # pragma: no cover
-        logger.error("Execution failed for request %s: %s", request_id, exc)
-        final_status = ApprovalStatus.failed
+    if request_obj.action_type == "low_stock_forecast_alert":
+        if requested_quantity is None or requested_quantity <= 0:
+            raise ValueError("Requested quantity must be provided and greater than 0")
+        if request_obj.product_id is None:
+            raise ValueError("Low stock approval request is missing its product identifier")
 
-    approval_repository.update_status(db, request_obj, final_status)
+        from app.services import notification_service
+        from app.services.purchase_order_service import get_purchase_order_service
+
+        try:
+            po_service = get_purchase_order_service(db)
+            result = po_service.create_purchase_order(
+                product_id=request_obj.product_id,
+                quantity=requested_quantity,
+            )
+            approval_repository.update_status(
+                db,
+                request_obj,
+                ApprovalStatus.executed,
+                requested_quantity=requested_quantity,
+            )
+            approval_repository.assign_executor(
+                db,
+                request_obj,
+                executor_id=executor_id,
+                executed_at=datetime.now(timezone.utc),
+            )
+            notification_service.mark_related_alerts_as_read(db, str(request_id))
+            stock_message = "and updated stock in Odoo" if result.get("stock_updated") else "but stock is still pending in Odoo"
+            audit_service.log_execution_event(
+                db,
+                action="execute_request",
+                approval_id=str(request_id),
+                user_id=executor_id,
+                status="success",
+                message=f"Created PO {result.get('name')} for {requested_quantity} units {stock_message}",
+                metadata=result,
+            )
+            logger.info("Audit: User %s executed low-stock ApprovalRequest %s", executor_id, request_id)
+            return request_obj
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to create purchase order: %s", exc)
+            approval_repository.update_status(
+                db,
+                request_obj,
+                ApprovalStatus.failed,
+                requested_quantity=requested_quantity,
+            )
+            approval_repository.assign_executor(
+                db,
+                request_obj,
+                executor_id=executor_id,
+                executed_at=datetime.now(timezone.utc),
+            )
+            audit_service.log_execution_event(
+                db,
+                action="execute_request",
+                approval_id=str(request_id),
+                user_id=executor_id,
+                status="failed",
+                message=f"Failed to create purchase order: {exc}",
+            )
+            return request_obj
+
+    approval_repository.update_status(db, request_obj, ApprovalStatus.executed)
     approval_repository.assign_executor(
         db,
         request_obj,
@@ -245,11 +254,11 @@ def execute_request(
         action="execute_request",
         approval_id=str(request_id),
         user_id=executor_id,
-        status="success" if final_status == ApprovalStatus.executed else "failed",
-        message="Execution successful" if final_status == ApprovalStatus.executed else "Execution failed",
+        status="success",
+        message="Execution successful",
     )
 
-    logger.info("Audit: User %s executed ApprovalRequest %s with status %s", executor_id, request_id, final_status)
+    logger.info("Audit: User %s executed ApprovalRequest %s with status %s", executor_id, request_id, ApprovalStatus.executed)
     return request_obj
 
 

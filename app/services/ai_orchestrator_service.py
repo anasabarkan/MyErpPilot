@@ -16,6 +16,7 @@ from app.orchestrator.intent_classifier import AIIntentClassifier
 from app.schemas.ai import AIQueryIntent, AIQueryResponse, AIVisualizationSpec
 from app.services.ai_response_builder import build_ai_response
 from app.services.ai_visualization_service import build_visualization_spec
+from app.services.language_service import SupportedLanguage, detect_supported_language, language_name
 from app.services.llm_provider_service import any_provider_configured
 from app.services.odoo_query_service import (
     OdooQueryExecutionError,
@@ -48,6 +49,230 @@ class _DateRange:
     date_to: str
     label: str
 
+
+
+_HANDLER_SUMMARIES_I18N: dict[SupportedLanguage, dict[str, str]] = {
+    "en": {
+        "get_top_customers": "Here are your top {limit} customers based on total confirmed sales amount.",
+        "get_top_products": "Here are your top {limit} products based on confirmed sales revenue.",
+        "get_sales_summary": "Here is your sales summary from quotations and confirmed sales orders.",
+        "get_invoice_status_summary": "Here is your invoice status summary from posted customer invoices.",
+        "get_recent_orders": "Here are your {limit} most recent sales orders.",
+    },
+    "fr": {
+        "get_top_customers": "Voici vos {limit} meilleurs clients selon le montant total des ventes confirmees.",
+        "get_top_products": "Voici vos {limit} meilleurs produits selon le chiffre d'affaires confirme.",
+        "get_sales_summary": "Voici le resume de vos ventes a partir des devis et commandes confirmees.",
+        "get_invoice_status_summary": "Voici le resume du statut de vos factures clients comptabilisees.",
+        "get_recent_orders": "Voici vos {limit} commandes de vente les plus recentes.",
+    },
+    "ar": {
+        "get_top_customers": "إليك أفضل {limit} عملاء حسب إجمالي المبيعات المؤكدة.",
+        "get_top_products": "إليك أفضل {limit} منتجات حسب الإيرادات المؤكدة.",
+        "get_sales_summary": "إليك ملخص المبيعات من عروض الأسعار وأوامر البيع المؤكدة.",
+        "get_invoice_status_summary": "إليك ملخص حالة فواتير العملاء المرحلة.",
+        "get_recent_orders": "إليك أحدث {limit} أوامر بيع.",
+    },
+}
+
+_HANDLER_SUGGESTED_ACTIONS_I18N: dict[SupportedLanguage, dict[str, list[str]]] = {
+    "en": {
+        "get_top_customers": [
+            "Create a follow-up plan for high-value customers with declining order frequency.",
+            "Review outstanding invoices for top customers to protect cash flow.",
+        ],
+        "get_top_products": [
+            "Review stock coverage for top-selling products to avoid stock-outs.",
+            "Assess pricing and margin trends on high-revenue products.",
+        ],
+        "get_sales_summary": [
+            "Compare confirmed orders versus quotations to improve conversion rate.",
+            "Break revenue down by month or sales team to identify performance trends.",
+        ],
+        "get_invoice_status_summary": [
+            "Prioritize collection follow-ups for unpaid or overdue invoices.",
+            "Investigate invoices in payment for potential reconciliation delays.",
+        ],
+        "get_recent_orders": [
+            "Review recent orders for delivery bottlenecks.",
+            "Flag unusual order values for manual validation.",
+        ],
+    },
+    "fr": {
+        "get_top_customers": [
+            "Preparez un plan de suivi pour les clients a forte valeur dont la frequence d'achat baisse.",
+            "Verifiez les factures impayees des meilleurs clients pour proteger la tresorerie.",
+        ],
+        "get_top_products": [
+            "Verifiez la couverture de stock des produits les plus vendus pour eviter les ruptures.",
+            "Analysez les tendances de prix et de marge des produits a fort chiffre d'affaires.",
+        ],
+        "get_sales_summary": [
+            "Comparez les commandes confirmees aux devis pour ameliorer le taux de conversion.",
+            "Decomposez le chiffre d'affaires par mois ou equipe commerciale pour identifier les tendances.",
+        ],
+        "get_invoice_status_summary": [
+            "Priorisez les relances de recouvrement pour les factures impayees ou en retard.",
+            "Analysez les factures en paiement pour detecter d'eventuels retards de rapprochement.",
+        ],
+        "get_recent_orders": [
+            "Verifiez les commandes recentes pour detecter les blocages de livraison.",
+            "Signalez les montants inhabituels pour une validation manuelle.",
+        ],
+    },
+    "ar": {
+        "get_top_customers": [
+            "أنشئ خطة متابعة للعملاء ذوي القيمة العالية الذين انخفضت وتيرة طلباتهم.",
+            "راجع الفواتير المستحقة لأفضل العملاء لحماية التدفق النقدي.",
+        ],
+        "get_top_products": [
+            "راجع تغطية المخزون للمنتجات الأكثر مبيعا لتجنب نفاد المخزون.",
+            "حلل اتجاهات الأسعار والهامش للمنتجات ذات الإيرادات العالية.",
+        ],
+        "get_sales_summary": [
+            "قارن الطلبات المؤكدة بعروض الأسعار لتحسين معدل التحويل.",
+            "قسم الإيرادات حسب الشهر أو فريق المبيعات لتحديد اتجاهات الأداء.",
+        ],
+        "get_invoice_status_summary": [
+            "امنح أولوية لمتابعة التحصيل للفواتير غير المدفوعة أو المتأخرة.",
+            "حقق في الفواتير قيد الدفع لاكتشاف أي تأخير محتمل في المطابقة.",
+        ],
+        "get_recent_orders": [
+            "راجع الطلبات الحديثة لاكتشاف عوائق التسليم.",
+            "ضع علامة على قيم الطلبات غير المعتادة للمراجعة اليدوية.",
+        ],
+    },
+}
+
+_GENERAL_FALLBACK_I18N: dict[SupportedLanguage, tuple[str, list[str]]] = {
+    "en": (
+        "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?",
+        ["Show top products", "List recent orders", "Show sales summary"],
+    ),
+    "fr": (
+        "Bonjour ! Je suis MyERPPilot AI, votre copilote IA d'entreprise securise. Comment puis-je vous aider avec vos donnees ERP, vos analyses ou vos validations aujourd'hui ?",
+        ["Afficher les meilleurs produits", "Lister les commandes recentes", "Afficher le resume des ventes"],
+    ),
+    "ar": (
+        "مرحبا! أنا MyERPPilot AI، مساعدك الذكي الآمن للمؤسسة. كيف يمكنني مساعدتك اليوم في بيانات ERP أو التحليلات أو موافقات سير العمل؟",
+        ["اعرض أفضل المنتجات", "اعرض أحدث الطلبات", "اعرض ملخص المبيعات"],
+    ),
+}
+
+_PREDICTION_UNAVAILABLE_ACTIONS_I18N: dict[SupportedLanguage, list[str]] = {
+    "en": [
+        "Run python -m app.scripts.train_product_prediction_model to generate the model artifact.",
+        "Make sure Odoo has at least one confirmed product sale with revenue before training.",
+        "Ask for top selling products this year to verify the source data first.",
+    ],
+    "fr": [
+        "Executez python -m app.scripts.train_product_prediction_model pour generer l'artefact du modele.",
+        "Verifiez qu'Odoo contient au moins une vente produit confirmee avec revenu avant l'entrainement.",
+        "Demandez les meilleurs produits vendus cette annee pour verifier d'abord les donnees source.",
+    ],
+    "ar": [
+        "شغل python -m app.scripts.train_product_prediction_model لإنشاء ملف النموذج.",
+        "تأكد من أن Odoo يحتوي على عملية بيع منتج مؤكدة واحدة على الأقل مع إيراد قبل التدريب.",
+        "اطلب أفضل المنتجات مبيعا هذا العام للتحقق من البيانات المصدر أولا.",
+    ],
+}
+
+
+
+
+def _localized_empty_question(language: SupportedLanguage) -> str:
+    return {
+        "en": "Question is empty.",
+        "fr": "La question est vide.",
+        "ar": "السؤال فارغ.",
+    }[language]
+
+
+def _localized_unsupported_question(language: SupportedLanguage) -> str:
+    return {
+        "en": "This question is not supported yet. Try asking about top customers, products, sales summary, invoice status, or recent orders.",
+        "fr": "Cette question n'est pas encore prise en charge. Essayez de demander les meilleurs clients, les produits, le resume des ventes, le statut des factures ou les commandes recentes.",
+        "ar": "هذا السؤال غير مدعوم بعد. جرب السؤال عن أفضل العملاء أو المنتجات أو ملخص المبيعات أو حالة الفواتير أو أحدث الطلبات.",
+    }[language]
+
+
+def _localized_result_fallback(language: SupportedLanguage) -> str:
+    return {
+        "en": "Here is the result.",
+        "fr": "Voici le resultat.",
+        "ar": "إليك النتيجة.",
+    }[language]
+
+
+def _localized_prediction_summary(
+    *,
+    language: SupportedLanguage,
+    quality: str | None,
+    product_name: str,
+    target_year: int,
+    predicted_revenue: float,
+    confidence: float,
+) -> str:
+    confidence_percent = confidence * 100
+    if language == "fr":
+        prefix = "Estimation avec donnees limitees" if quality == "limited_data" else "Prevision avec historique court" if quality == "short_history" else "Je prevois"
+        return (
+            f"{prefix} : {product_name} est le produit le plus prometteur pour {target_year}, "
+            f"avec un chiffre d'affaires estime de {predicted_revenue:,.2f} "
+            f"et une confiance de {confidence_percent:.1f} %."
+        )
+    if language == "ar":
+        prefix = "تقدير ببيانات محدودة" if quality == "limited_data" else "توقع بسجل قصير" if quality == "short_history" else "أتوقع"
+        return (
+            f"{prefix}: {product_name} هو أقوى منتج لسنة {target_year}، "
+            f"مع إيراد متوقع قدره {predicted_revenue:,.2f} "
+            f"ودرجة ثقة {confidence_percent:.1f}%."
+        )
+    if quality == "limited_data":
+        return (
+            f"Limited-data estimate: {product_name} is currently the strongest product for {target_year}, "
+            f"with estimated revenue of {predicted_revenue:,.2f} "
+            f"and {confidence_percent:.1f}% confidence."
+        )
+    if quality == "short_history":
+        return (
+            f"Short-history forecast: {product_name} is the strongest product for {target_year}, "
+            f"with projected revenue of {predicted_revenue:,.2f} "
+            f"and {confidence_percent:.1f}% confidence."
+        )
+    return (
+        f"I predict {product_name} is the strongest product for {target_year}, "
+        f"with projected revenue of {predicted_revenue:,.2f} "
+        f"and {confidence_percent:.1f}% confidence."
+    )
+
+
+def _localized_prediction_actions(language: SupportedLanguage, product_name: str, target_year: int) -> list[str]:
+    if language == "fr":
+        return [
+            f"Verifiez la couverture de stock de {product_name} avant {target_year}.",
+            "Reentrainez le modele apres chaque cycle de vente pour ameliorer la qualite des previsions.",
+            "Comparez la prevision aux delais fournisseurs et aux marges.",
+        ]
+    if language == "ar":
+        return [
+            f"راجع تغطية مخزون {product_name} قبل {target_year}.",
+            "أعد تدريب النموذج بعد كل دورة مبيعات لتحسين جودة التوقع.",
+            "قارن التوقع بمهل الموردين والهوامش.",
+        ]
+    return [
+        f"Review stock coverage for {product_name} before {target_year}.",
+        "Retrain the model after each sales cycle to improve prediction quality.",
+        "Compare the forecast against supplier lead times and margins.",
+    ]
+
+
+def _localized_prediction_unavailable(language: SupportedLanguage, target_year: int, reason: str) -> str:
+    if language == "fr":
+        return f"Je ne peux pas encore etablir une prediction fiable des produits pour {target_year}. {reason}"
+    if language == "ar":
+        return f"لا يمكنني إنشاء توقع موثوق للمنتجات لسنة {target_year} بعد. {reason}"
+    return f"I cannot make a reliable product prediction for {target_year} yet. {reason}"
 
 class AIOrchestratorService:
     _SUPPORTED_INTENTS = {
@@ -94,16 +319,21 @@ class AIOrchestratorService:
 
     def query(self, *, question: str, user_id: UUID) -> AIQueryResponse:
         normalized_question = question.strip()
+        response_language = detect_supported_language(normalized_question)
         if not normalized_question:
-            raise AIUnsupportedQuestionError("Question is empty.")
+            raise AIUnsupportedQuestionError(_localized_empty_question(response_language))
 
         initial_resolution = self.intent_classifier.classify(normalized_question)
         if initial_resolution.intent == AIQueryIntent.prediction_query:
-            return self._handle_prediction_query(question=normalized_question)
+            return self._handle_prediction_query(question=normalized_question, detected_language=response_language)
 
         if settings.TEXT2SQL_ENABLED and any_provider_configured() and not initial_resolution.handler:
             try:
-                return self.text_to_sql_service.query(question=normalized_question, user_id=user_id)
+                return self.text_to_sql_service.query(
+                    question=normalized_question,
+                    user_id=user_id,
+                    detected_language=response_language,
+                )
             except TextToSQLCannotAnswerError:
                 if initial_resolution.intent == AIQueryIntent.dashboard_query:
                     raise AIIntentNotImplementedError(
@@ -113,10 +343,10 @@ class AIOrchestratorService:
                     raise AIIntentNotImplementedError(
                         "Intent 'action_proposal' is recognized but not implemented in this MVP."
                     )
-                return self._handle_general_knowledge(question=normalized_question)
+                return self._handle_general_knowledge(question=normalized_question, detected_language=response_language)
             except (OdooQuerySourceNotConfiguredError, OdooConnectionError, OdooAuthenticationError, OdooRequestError):
                 if not initial_resolution.handler:
-                    return self._handle_general_knowledge(question=normalized_question)
+                    return self._handle_general_knowledge(question=normalized_question, detected_language=response_language)
                 raise
 
         runtime = self.odoo_query_service.build_runtime_context()
@@ -129,10 +359,8 @@ class AIOrchestratorService:
 
         if not resolution.handler:
             if settings.TEXT2SQL_ENABLED and any_provider_configured():
-                return self._handle_general_knowledge(question=normalized_question)
-            raise AIUnsupportedQuestionError(
-                "This question is not supported yet. Try asking about top customers, products, sales summary, invoice status, or recent orders."
-            )
+                return self._handle_general_knowledge(question=normalized_question, detected_language=response_language)
+            raise AIUnsupportedQuestionError(_localized_unsupported_question(response_language))
 
         limit = self._extract_limit_from_question(normalized_question, default=5)
         handler = resolution.handler
@@ -145,8 +373,13 @@ class AIOrchestratorService:
         except OdooRequestError as exc:
             raise OdooQueryExecutionError(str(exc)) from exc
 
-        summary = self._build_summary(handler=handler, limit=limit, date_range=date_range)
-        suggested_actions = self._HANDLER_SUGGESTED_ACTIONS.get(handler, [])
+        summary = self._build_summary(
+            handler=handler,
+            limit=limit,
+            date_range=date_range,
+            detected_language=response_language,
+        )
+        suggested_actions = _HANDLER_SUGGESTED_ACTIONS_I18N[response_language].get(handler, [])
         visualization = build_visualization_spec(
             question=normalized_question,
             handler=handler,
@@ -162,9 +395,15 @@ class AIOrchestratorService:
             data=data,
             suggested_actions=suggested_actions,
             visualization=visualization,
+            detected_language=response_language,
         )
 
-    def _handle_prediction_query(self, *, question: str) -> AIQueryResponse:
+    def _handle_prediction_query(
+        self,
+        *,
+        question: str,
+        detected_language: SupportedLanguage,
+    ) -> AIQueryResponse:
         target_year = self._extract_prediction_target_year(question)
 
         try:
@@ -182,27 +421,18 @@ class AIOrchestratorService:
                 question=question,
                 target_year=target_year,
                 reason=str(exc),
+                detected_language=detected_language,
             )
 
         best_product = prediction.best_product
-        if prediction.data_quality == "limited_data":
-            summary = (
-                f"Limited-data estimate: {best_product.product_name} is currently the strongest product for {target_year}, "
-                f"with estimated revenue of {best_product.predicted_revenue:,.2f} "
-                f"and {best_product.confidence * 100:.1f}% confidence."
-            )
-        elif prediction.data_quality == "short_history":
-            summary = (
-                f"Short-history forecast: {best_product.product_name} is the strongest product for {target_year}, "
-                f"with projected revenue of {best_product.predicted_revenue:,.2f} "
-                f"and {best_product.confidence * 100:.1f}% confidence."
-            )
-        else:
-            summary = (
-                f"I predict {best_product.product_name} is the strongest product for {target_year}, "
-                f"with projected revenue of {best_product.predicted_revenue:,.2f} "
-                f"and {best_product.confidence * 100:.1f}% confidence."
-            )
+        summary = _localized_prediction_summary(
+            language=detected_language,
+            quality=prediction.data_quality,
+            product_name=best_product.product_name,
+            target_year=target_year,
+            predicted_revenue=best_product.predicted_revenue,
+            confidence=best_product.confidence,
+        )
         if prediction.warning:
             summary = f"{summary} {prediction.warning}"
         chart_data = [
@@ -230,13 +460,14 @@ class AIOrchestratorService:
             handler="predict_best_product",
             summary=summary,
             data=prediction.model_dump(mode="json"),
-            suggested_actions=[
-                f"Review stock coverage for {best_product.product_name} before {target_year}.",
-                "Retrain the model after each sales cycle to improve prediction quality.",
-                "Compare the forecast against supplier lead times and margins.",
-            ],
+            suggested_actions=_localized_prediction_actions(
+                detected_language,
+                best_product.product_name,
+                target_year,
+            ),
             visualization=visualization,
             prediction=prediction,
+            detected_language=detected_language,
         )
 
     def _build_prediction_unavailable_response(
@@ -245,34 +476,37 @@ class AIOrchestratorService:
         question: str,
         target_year: int,
         reason: str,
+        detected_language: SupportedLanguage,
     ) -> AIQueryResponse:
         return build_ai_response(
             question=question,
             intent=AIQueryIntent.prediction_query,
             handler="predict_best_product",
-            summary=(
-                f"I cannot make a reliable product prediction for {target_year} yet. "
-                f"{reason}"
-            ),
+            summary=_localized_prediction_unavailable(detected_language, target_year, reason),
             data={
                 "status": "prediction_unavailable",
                 "target_period": str(target_year),
                 "reason": reason,
             },
-            suggested_actions=[
-                "Run python -m app.scripts.train_product_prediction_model to generate the model artifact.",
-                "Make sure Odoo has at least one confirmed product sale with revenue before training.",
-                "Ask for top selling products this year to verify the source data first.",
-            ],
+            suggested_actions=_PREDICTION_UNAVAILABLE_ACTIONS_I18N[detected_language],
+            detected_language=detected_language,
         )
 
-    def _build_summary(self, *, handler: str, limit: int, date_range: _DateRange | None = None) -> str:
-        template = self._HANDLER_SUMMARIES.get(handler)
-        if not template:
-            summary = "Here is the result."
-        else:
-            summary = template.format(limit=limit)
+    def _build_summary(
+        self,
+        *,
+        handler: str,
+        limit: int,
+        detected_language: SupportedLanguage,
+        date_range: _DateRange | None = None,
+    ) -> str:
+        template = _HANDLER_SUMMARIES_I18N[detected_language].get(handler)
+        summary = template.format(limit=limit) if template else _localized_result_fallback(detected_language)
         if date_range:
+            if detected_language == "fr":
+                return f"{summary.rstrip('.')} pour {date_range.label}."
+            if detected_language == "ar":
+                return f"{summary.rstrip('.')} للفترة {date_range.label}."
             return f"{summary.rstrip('.')} for {date_range.label}."
         return summary
 
@@ -321,7 +555,7 @@ class AIOrchestratorService:
     def _extract_date_range_from_question(question: str) -> _DateRange | None:
         current_year = datetime.now(timezone.utc).year
 
-        if any(phrase in question for phrase in ("this year", "current year", "cette annee", "cette année")):
+        if any(phrase in question for phrase in ("this year", "current year", "cette annee", "cette annÃ©e")):
             return _DateRange(
                 date_from=f"{current_year}-01-01 00:00:00",
                 date_to=f"{current_year}-12-31 23:59:59",
@@ -358,33 +592,34 @@ class AIOrchestratorService:
             return current_year
         return current_year + 1
 
-    def _handle_general_knowledge(self, *, question: str) -> AIQueryResponse:
+    def _handle_general_knowledge(
+        self,
+        *,
+        question: str,
+        detected_language: SupportedLanguage,
+    ) -> AIQueryResponse:
         system_prompt = (
             "You are MyERPPilot AI, a secure and intelligent enterprise AI copilot. "
             "The user is asking a general question, greeting, or business/technical concept question. "
             "Answer the user's question directly using clear, professional natural language. "
-            "In addition, propose 2-3 relevant business or analytical actions they can perform (e.g. 'View top selling products', 'Check latest sales orders')."
+            f"Respond in {language_name(detected_language)}. "
+            "In addition, propose 2-3 relevant business or analytical actions they can perform "
+            "in the same response language."
         )
         user_prompt = f"User question: {question}"
+        fallback_summary, fallback_actions = _GENERAL_FALLBACK_I18N[detected_language]
 
         try:
             res = self.text_to_sql_service.provider_chain.generate_general(
                 system_prompt=system_prompt,
-                user_prompt=user_prompt
+                user_prompt=user_prompt,
+                detected_language=detected_language,
             )
-            summary = res.get("summary", "Hello! How can I assist you with your ERP data today?")
-            suggested_actions = res.get("suggested_actions", [
-                "Show top products",
-                "List recent orders",
-                "Show sales summary"
-            ])
+            summary = res.get("summary", fallback_summary)
+            suggested_actions = res.get("suggested_actions", fallback_actions)
         except Exception:
-            summary = "Hello! I am MyERPPilot AI, your secure enterprise AI copilot. How can I assist you with your ERP data, analytics, or workflow approvals today?"
-            suggested_actions = [
-                "Show top products",
-                "List recent orders",
-                "Show sales summary"
-            ]
+            summary = fallback_summary
+            suggested_actions = fallback_actions
 
         return build_ai_response(
             question=question,
@@ -393,4 +628,5 @@ class AIOrchestratorService:
             summary=summary,
             data={},
             suggested_actions=suggested_actions,
+            detected_language=detected_language,
         )
